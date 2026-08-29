@@ -1,5 +1,3 @@
-{ config, lib, pkgs, ... }:
-
 {
   description = "Procedural universe generator";
 
@@ -11,14 +9,14 @@
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
-
-      python = pkgs.python3.withPackages (ps: with ps; [
-        noise
-      ]);
     in {
       devShells.${system}.default = pkgs.mkShell {
-        packages = [
-          python
+        packages = with pkgs; [
+          python3
+          python3Packages.noise
+          python3Packages.plotly
+          python3Packages.black
+          python3Packages.numpy
         ];
       };
     };
