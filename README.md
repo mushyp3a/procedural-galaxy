@@ -1,1 +1,1 @@
-# Procedural Universe
+# Procedural Galaxy Generator
