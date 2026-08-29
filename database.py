@@ -36,7 +36,7 @@ class Database:
             cursor = self.connection.execute(
                 """
                 INSERT INTO systems (
-                    x, y, z, density, H, He, C, O, Fe
+                    x, y, z, density, H, He, C, O, metallicity
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -49,29 +49,30 @@ class Database:
                     system["He"],
                     system["C"],
                     system["O"],
-                    system["Fe"],
-                )
+                    system["metallicity"],
+                ),
             )
             system_ids[system_index] = cursor.lastrowid
         self.connection.commit()
         return system_ids
 
     def save_stars(self, stars, system_ids):
-        self.connection.executemany(
-            """
-            INSERT INTO stars (
-                system_id,
-                star_number,
-                mass,
-                radius,
-                temperature,
-                luminosity,
-                metallicity,
-                spectral_type
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
+        star_ids = {}
+        for star_index, star in enumerate(stars):
+            cursor = self.connection.execute(
+                """
+                INSERT INTO stars (
+                    system_id,
+                    star_number,
+                    mass,
+                    radius,
+                    temperature,
+                    luminosity,
+                    metallicity,
+                    spectral_type
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
                 (
                     system_ids[star["system_index"]],
                     star["star_number"],
@@ -81,39 +82,39 @@ class Database:
                     star["luminosity"],
                     star["metallicity"],
                     star["spectral_type"],
-                )
-                for star in stars
-            ]
-        )
+                ),
+            )
+            star_ids[star_index] = cursor.lastrowid
         self.connection.commit()
+        return star_ids
 
-    def save_planets(self, planets, system_ids):
+    def save_planets(self, planets, system_ids, star_ids):
         self.connection.executemany(
             """
             INSERT INTO planets (
                 system_id,
-                name,
-                x,
-                y,
-                z,
+                star_id,
+                orbital_order,
+                orbital_distance,
                 mass,
                 radius,
                 temperature,
-                luminosity
+                planet_type,
+                albedo
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
                     system_ids[planet["system_index"]],
-                    planet["name"],
-                    planet["x"],
-                    planet["y"],
-                    planet["z"],
+                    star_ids[planet["star_index"]],
+                    planet["orbital_order"],
+                    planet["orbital_distance"],
                     planet["mass"],
                     planet["radius"],
                     planet["temperature"],
-                    planet["luminosity"],
+                    planet["planet_type"],
+                    planet["albedo"],
                 )
                 for planet in planets
             ]

@@ -58,7 +58,7 @@ def generate_systems(lattice, rng):
             "He": float(helium),
             "C": float(lattice[x, y, z]["C"]),
             "O": float(lattice[x, y, z]["O"]),
-            "Fe": float(lattice[x, y, z]["Fe"]),
+            "metallicity": float(lattice[x, y, z]["metallicity"]),
         })
 
 

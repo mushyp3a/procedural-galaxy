@@ -158,7 +158,7 @@ def generate_star(rng, system, system_index):
         "luminosity": luminosity,
         "temperature": temperature,
         "spectral_type": spectral_type,
-        "metallicity": float(system["Fe"]),
+        "metallicity": float(system["metallicity"]),
     }
 
 def generate_stars(rng, systems):

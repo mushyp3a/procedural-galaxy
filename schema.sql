@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS systems (
     He REAL NOT NULL,
     C REAL NOT NULL,
     O REAL NOT NULL,
-    Fe REAL NOT NULL
+    metallicity REAL NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS stars (
@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS planets (
     mass REAL NOT NULL,
     radius REAL NOT NULL,
     temperature REAL NOT NULL,
-    habitability REAL NOT NULL,
+    planet_type TEXT NOT NULL,
+    albedo REAL NOT NULL,
 
     FOREIGN KEY (system_id)
         REFERENCES systems(id),

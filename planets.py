@@ -228,75 +228,6 @@ def generate_temperature(
     )
 
 # =========================
-# HABITABILITY
-# =========================
-
-def generate_habitability(
-    planet_type,
-    temperature,
-    orbital_distance,
-    star,
-):
-    # Generate a continuous 0-1 environmental suitability score.
-    # This is NOT a probability of life.
-    # It represents how suitable the basic physical environment
-    # is for Earth-like surface conditions.
-
-    luminosity = star["luminosity"]
-
-    # Simple luminosity-based conservative HZ approximation.
-    inner_hz = math.sqrt(
-        luminosity / 1.1
-    )
-
-    outer_hz = math.sqrt(
-        luminosity / 0.35
-    )
-
-    if inner_hz <= orbital_distance <= outer_hz:
-        zone_score = 1.0
-    else:
-        if orbital_distance < inner_hz:
-            distance = inner_hz - orbital_distance
-        else:
-            distance = orbital_distance - outer_hz
-
-        zone_width = outer_hz - inner_hz
-
-        zone_score = max(
-            0.0,
-            1.0 - distance / zone_width,
-        )
-
-    # Temperature suitability.
-    temperature_score = math.exp(
-        -(
-            (temperature - 288.0) / 70.0
-        ) ** 2
-    )
-
-    if planet_type == "terrestrial":
-        type_score = 1.0
-    elif planet_type == "ice_giant":
-        type_score = 0.15
-    else:
-        type_score = 0.05
-
-    habitability = (
-        zone_score
-        * temperature_score
-        * type_score
-    )
-
-    return float(
-        np.clip(
-            habitability,
-            0.0,
-            1.0,
-        )
-    )
-
-# =========================
 # SINGLE PLANET
 # =========================
 
@@ -335,13 +266,6 @@ def generate_planet(
         albedo,
     )
 
-    habitability = generate_habitability(
-        planet_type,
-        temperature,
-        orbital_distance,
-        star,
-    )
-
     return {
         "star_index": star.get("star_index"),
         "system_index": star.get("system_index"),
@@ -352,7 +276,6 @@ def generate_planet(
         "planet_type": planet_type,
         "albedo": albedo,
         "temperature": temperature,
-        "habitability": habitability,
     }
 
 # =========================

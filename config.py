@@ -12,22 +12,15 @@ class Config:
     oxygen_seed: int = field(init=False)
     helium_seed: int = field(init=False)
     hydrogen_seed: int = field(init=False)
-    iron_seed: int = field(init=False)
+    metallicity_seed: int = field(init=False)
     density_seed: int = field(init=False)
 
     universe_size: float = 1000
     element_noise_scale: float = 0.005
-    iron_scale: float = 0.001
     element_octaves: int = 1
 
     lattice_resolution: int = 50
     lattice_steps: np.ndarray = field(init=False)
-
-    habitability_threshold: float = 0.6
-
-    cluster_radius: int = 1
-    systems_per_cluster: int = 10
-    max_spawn_attempts: int = 50
 
     def __post_init__(self):
         self.lattice_steps = np.round(
@@ -42,5 +35,5 @@ class Config:
         self.oxygen_seed = self.seed + 2
         self.helium_seed = self.seed + 3
         self.hydrogen_seed = self.seed + 4
-        self.iron_seed = self.seed + 5
+        self.metallicity_seed = self.seed + 5
         self.density_seed = self.seed + 6

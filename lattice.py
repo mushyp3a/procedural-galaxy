@@ -23,12 +23,6 @@ def perlin(x, y, z, seed):
     ) / 2
 
 
-coordinate_to_index = {
-    coordinate: index
-    for index, coordinate in enumerate(conf.lattice_steps)
-}
-
-
 def generate_lattice():
     lattice = np.zeros(
         (
@@ -42,7 +36,7 @@ def generate_lattice():
             ("O", "f4"),
             ("He", "f4"),
             ("H", "f4"),
-            ("Fe", "f4"),
+            ("metallicity", "f4"),
         ]
     )
 
@@ -99,10 +93,10 @@ def generate_lattice():
                     ) * density
                 )
 
-                lattice[x, y, z]["Fe"] = perlin(
+                lattice[x, y, z]["metallicity"] = perlin(
                     conf.lattice_steps[x],
                     conf.lattice_steps[y],
                     conf.lattice_steps[z],
-                    conf.iron_seed
+                    conf.metallicity_seed
                 )
     return lattice
