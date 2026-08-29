@@ -53,12 +53,12 @@ def generate_systems(lattice, rng):
             "y": position[1],
             "z": position[2],
 
-            "density": density,
-            "H": hydrogen,
-            "He": helium,
-            "C": lattice[x, y, z]["C"],
-            "O": lattice[x, y, z]["O"],
-            "Fe": lattice[x, y, z]["Fe"],
+            "density": float(density),
+            "H": float(hydrogen),
+            "He": float(helium),
+            "C": float(lattice[x, y, z]["C"]),
+            "O": float(lattice[x, y, z]["O"]),
+            "Fe": float(lattice[x, y, z]["Fe"]),
         })
 
 

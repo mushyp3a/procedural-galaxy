@@ -18,13 +18,13 @@ CREATE TABLE IF NOT EXISTS systems (
 CREATE TABLE IF NOT EXISTS stars (
     id INTEGER PRIMARY KEY,
     system_id INTEGER NOT NULL,
+    star_number INTEGER NOT NULL,
 
     mass REAL NOT NULL,
     radius REAL NOT NULL,
     temperature REAL NOT NULL,
     luminosity REAL NOT NULL,
     metallicity REAL NOT NULL,
-    age REAL NOT NULL,
     spectral_type TEXT NOT NULL,
 
     FOREIGN KEY (system_id)
@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS planets (
 
     FOREIGN KEY (system_id)
         REFERENCES systems(id),
+
     FOREIGN KEY (star_id)
         REFERENCES stars(id)
 );

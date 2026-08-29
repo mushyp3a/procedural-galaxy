@@ -31,37 +31,58 @@ class Database:
         self.connection.close()
 
     def save_systems(self, systems):
-        rows = [
-            (
-                float(system["x"]),
-                float(system["y"]),
-                float(system["z"]),
-                float(system["density"]),
-                float(system["H"]),
-                float(system["He"]),
-                float(system["C"]),
-                float(system["O"]),
-                float(system["Fe"]),
+        system_ids = {}
+        for system_index, system in enumerate(systems):
+            cursor = self.connection.execute(
+                """
+                INSERT INTO systems (
+                    x, y, z, density, H, He, C, O, Fe
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    system["x"],
+                    system["y"],
+                    system["z"],
+                    system["density"],
+                    system["H"],
+                    system["He"],
+                    system["C"],
+                    system["O"],
+                    system["Fe"],
+                )
             )
-            for system in systems
-        ]
+            system_ids[system_index] = cursor.lastrowid
+        self.connection.commit()
+        return system_ids
 
+    def save_stars(self, stars, system_ids):
         self.connection.executemany(
             """
-            INSERT INTO systems (
-                x,
-                y,
-                z,
-                density,
-                H,
-                He,
-                C,
-                O,
-                Fe
+            INSERT INTO stars (
+                system_id,
+                star_number,
+                mass,
+                radius,
+                temperature,
+                luminosity,
+                metallicity,
+                spectral_type
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            rows
+            [
+                (
+                    system_ids[star["system_index"]],
+                    star["star_number"],
+                    star["mass"],
+                    star["radius"],
+                    star["temperature"],
+                    star["luminosity"],
+                    star["metallicity"],
+                    star["spectral_type"],
+                )
+                for star in stars
+            ]
         )
-
         self.connection.commit()
