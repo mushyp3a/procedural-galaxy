@@ -11,6 +11,7 @@ from systems import generate_systems
 from database import Database
 from visualise import plot_systems, plot_suitability, plot_iron, plot_density
 from stars import generate_stars
+from planets import generate_planets
 
 conf = Config()
 
@@ -22,9 +23,11 @@ db.initialise()
 lattice = generate_lattice()
 systems = generate_systems(lattice, rng)
 stars = generate_stars(rng, systems)
+planets = generate_planets(stars, rng)
 
 system_ids = db.save_systems(systems)
 db.save_stars(stars, system_ids)
+db.save_planets(planets, system_ids)
 
 db.close()
 plot_suitability(lattice)

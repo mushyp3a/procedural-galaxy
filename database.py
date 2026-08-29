@@ -86,3 +86,36 @@ class Database:
             ]
         )
         self.connection.commit()
+
+    def save_planets(self, planets, system_ids):
+        self.connection.executemany(
+            """
+            INSERT INTO planets (
+                system_id,
+                name,
+                x,
+                y,
+                z,
+                mass,
+                radius,
+                temperature,
+                luminosity
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    system_ids[planet["system_index"]],
+                    planet["name"],
+                    planet["x"],
+                    planet["y"],
+                    planet["z"],
+                    planet["mass"],
+                    planet["radius"],
+                    planet["temperature"],
+                    planet["luminosity"],
+                )
+                for planet in planets
+            ]
+        )
+        self.connection.commit()
