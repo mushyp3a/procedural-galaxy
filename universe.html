@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Procedural Universe Explorer</title>
+<style>
+html,body{margin:0;height:100%;background:#05060a;color:#cfe3ff;
+  font-family:ui-monospace,Menlo,Consolas,monospace;overflow:hidden}
+#container{position:fixed;inset:0}
+.panel{position:fixed;background:rgba(10,14,24,0.82);border:1px solid #1d2a44;
+  border-radius:8px;padding:10px 12px;backdrop-filter:blur(4px);font-size:12px;line-height:1.5}
+#info{top:12px;right:12px;width:280px;max-height:72vh;overflow:auto}
+#search{top:12px;left:12px;width:248px;max-height:90vh;overflow:auto}
+#breadcrumb{bottom:12px;left:12px}
+#legend{bottom:12px;right:12px;width:200px}
+#controls{bottom:12px;left:272px;width:232px}
+#tooltip{position:fixed;display:none;pointer-events:none;background:rgba(10,14,24,0.9);
+  border:1px solid #2a4a7a;border-radius:6px;padding:4px 7px;font-size:11px;color:#cfe3ff;z-index:10}
+h3{margin:0 0 6px;font-size:13px;color:#9fd0ff}
+hr{border:none;border-top:1px solid #1d2a44;margin:8px 0}
+table{border-collapse:collapse;width:100%}
+td{padding:1px 4px;vertical-align:top}
+td.k{color:#7f9bc4;width:44%}
+input[type=number],input[type=text]{width:72px;background:#0b1120;color:#cfe3ff;
+  border:1px solid #1d2a44;border-radius:4px;padding:2px 4px}
+input.wide{width:90px}
+button{background:#16335c;color:#cfe3ff;border:1px solid #2a4a7a;border-radius:4px;
+  padding:3px 8px;cursor:pointer;font-family:inherit}
+button:hover{background:#1d447d}
+button:disabled{opacity:0.5;cursor:not-allowed}
+.sw{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle}
+#matchList{margin-top:6px;max-height:180px;overflow:auto}
+#matchList div{cursor:pointer;padding:1px 3px;border-radius:3px}
+#matchList div:hover{background:#16335c}
+label{display:inline-block;margin:1px 4px 1px 0}
+.row{display:flex;gap:6px;align-items:center;margin:3px 0;flex-wrap:wrap}
+.row span{white-space:nowrap}
+#cfgToggle{cursor:pointer;user-select:none;color:#9fd0ff;font-weight:bold}
+#cfgBody{display:none;margin-top:6px}
+#cfgBody.open{display:block}
+#regenBtn{margin-top:8px;width:100%}
+#statsLine{margin-top:5px;color:#7f9bc4;font-size:11px}
+#loading{position:fixed;inset:0;z-index:100;background:#05060a;
+  display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px}
+#loading h2{color:#9fd0ff;margin:0;font-size:16px;font-family:ui-monospace,Menlo,Consolas,monospace}
+#loading-detail{color:#7f9bc4;font-size:11px;min-height:14px}
+.spinner{width:36px;height:36px;border:3px solid #1d2a44;border-top-color:#9fd0ff;
+  border-radius:50%;animation:spin 0.8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <h2>Generating universe…</h2>
+  <div id="loading-detail"></div>
+</div>
+
+<div id="container"></div>
+<div id="tooltip"></div>
+
+<div id="search" class="panel">
+  <h3>Search / Filter</h3>
+  <div class="row"><input id="sysId" type="text" placeholder="system id"/><button id="goId">Go</button></div>
+  <div class="row"><span>Met min</span><input id="metMin" type="number" step="0.05" min="0" max="1" value="0"/></div>
+  <div class="row"><span>Met max</span><input id="metMax" type="number" step="0.05" min="0" max="1" value="1"/></div>
+  <div class="row"><span>Min planets</span><input id="minP" type="number" min="0" max="20" value="0"/></div>
+  <div class="row"><span>Spectral</span><span id="specBoxes"></span></div>
+  <div class="row"><button id="applyF">Apply</button><span id="matchCount"></span></div>
+  <div id="matchList"></div>
+
+  <hr/>
+
+  <div id="cfgToggle">⚙ Generator Config ▾</div>
+  <div id="cfgBody">
+    <div class="row"><span>Seed</span><input id="cfg-seed" type="number" value="125" class="wide"/></div>
+    <div class="row"><span>Universe size</span><input id="cfg-universeSize" type="number" value="1000" class="wide"/></div>
+    <div class="row"><span>Noise scale</span><input id="cfg-noiseScale" type="number" step="0.001" min="0.001" value="0.005" class="wide"/></div>
+    <div class="row"><span>Noise octaves</span><input id="cfg-octaves" type="number" min="1" max="6" value="1" class="wide"/></div>
+    <div class="row"><span>Lattice res</span><input id="cfg-latticeRes" type="number" min="10" max="80" value="50" class="wide"/></div>
+    <div class="row"><span>Density thresh</span><input id="cfg-densityThresh" type="number" step="0.05" min="0" max="1" value="0.5" class="wide"/></div>
+    <div class="row"><span>H thresh</span><input id="cfg-HThresh" type="number" step="0.05" min="0" max="1" value="0.3" class="wide"/></div>
+    <div class="row"><span>He thresh</span><input id="cfg-HeThresh" type="number" step="0.05" min="0" max="1" value="0.3" class="wide"/></div>
+    <div class="row"><label><input id="cfg-galaxyEnabled" type="checkbox" checked/> Galaxy shape</label></div>
+    <div class="row cfg-galaxy-sub"><span>Shape</span>
+      <select id="cfg-galaxyShape" style="background:#0b1120;color:#cfe3ff;border:1px solid #1d2a44;border-radius:4px;padding:2px 4px;font-family:inherit;font-size:12px">
+        <option value="elliptical">Elliptical</option>
+        <option value="spiral">Spiral</option>
+        <option value="ring">Ring</option>
+      </select>
+    </div>
+    <div class="row cfg-galaxy-sub"><span>Sphere radius</span><input id="cfg-sphereRadius" type="number" step="0.05" min="0.1" max="1.5" value="0.9" class="wide"/></div>
+    <div class="row cfg-galaxy-sub"><span>Squash (Y)</span><input id="cfg-squashFactor" type="number" step="0.05" min="0.05" max="1" value="0.18" class="wide"/></div>
+    <div class="row cfg-spiral cfg-galaxy-sub"><span>Arms</span><input id="cfg-armCount" type="number" min="1" max="6" value="2" class="wide"/></div>
+    <div class="row cfg-spiral cfg-galaxy-sub"><span>Arm pitch</span><input id="cfg-armPitch" type="number" step="0.1" min="0.1" max="2" value="0.4" class="wide"/></div>
+    <div class="row cfg-spiral cfg-galaxy-sub"><span>Arm width</span><input id="cfg-armWidth" type="number" step="0.05" min="0.05" max="0.8" value="0.22" class="wide"/></div>
+    <div class="row cfg-ring cfg-galaxy-sub"><span>Ring radius</span><input id="cfg-ringRadius" type="number" step="0.05" min="0.1" max="0.9" value="0.6" class="wide"/></div>
+    <div class="row cfg-ring cfg-galaxy-sub"><span>Ring width</span><input id="cfg-ringWidth" type="number" step="0.05" min="0.05" max="0.4" value="0.15" class="wide"/></div>
+    <div class="row"><span>Max stars/sys</span><input id="cfg-maxStars" type="number" min="1" max="5" value="3" class="wide"/></div>
+    <div class="row"><span>Min orbit (AU)</span><input id="cfg-minOrbit" type="number" step="0.01" min="0.01" value="0.05" class="wide"/></div>
+    <div class="row"><span>Max orbit (AU)</span><input id="cfg-maxOrbit" type="number" min="1" value="30" class="wide"/></div>
+    <button id="regenBtn">↻ Regenerate</button>
+    <div id="statsLine"></div>
+  </div>
+</div>
+
+<div id="info" class="panel">Click a system to explore.</div>
+
+<div id="breadcrumb" class="panel">
+  <span id="crumb">Universe</span>
+  <button id="backBtn" style="display:none">&#8592; Back</button>
+</div>
+
+<div id="controls" class="panel">
+  <h3>Controls</h3>
+  <div><b>WASD</b>: move &middot; <b>Shift</b>: boost</div>
+  <div><b>Space</b>: up &middot; <b>Ctrl</b>: down</div>
+  <div>Left-drag: orbit &middot; Wheel: zoom</div>
+  <div>Right-drag: pan</div>
+  <div>Click system to fly in &middot; <b>Esc</b>: back</div>
+</div>
+
+<div id="legend" class="panel">
+  <h3>Legend</h3>
+  <div><span class="sw" style="background:#3a6bff"></span>low metallicity</div>
+  <div><span class="sw" style="background:#ff9b3a"></span>high metallicity</div>
+  <div style="margin-top:4px"><span class="sw" style="background:#4caf50"></span>terrestrial</div>
+  <div><span class="sw" style="background:#64b5f6"></span>ice giant</div>
+  <div><span class="sw" style="background:#ff7043"></span>gas giant</div>
+  <div style="margin-top:4px">Lines = star → planet → moon</div>
+</div>
+
+<script src="./viewer/three.min.js"></script>
+<script src="./viewer/OrbitControls.js"></script>
+<script>
+'use strict';
+
+// PRNG — xorshift32 (seeded, fast)
+function makePRNG(seed) {
+  let s = ((seed | 0) >>> 0) || 1;
+  function next() {
+    s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
+    return (s >>> 0) / 4294967296;
+  }
+  return {
+    next,
+    uniform(a, b) { return a + next() * (b - a); },
+    // [lo, hi) exclusive upper bound, matches numpy rng.integers(lo, hi)
+    int(lo, hi) { return lo + ((next() * (hi - lo)) | 0); },
+    shuffle(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = (next() * (i + 1)) | 0;
+        const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+      }
+    },
+    poisson(lam) {
+      if (lam <= 0) return 0;
+      // Knuth algorithm; safe for small lambda
+      const L = Math.exp(-Math.min(lam, 500));
+      let k = 0, p = 1;
+      do { k++; p *= next(); } while (p > L && k < 200);
+      return k - 1;
+    }
+  };
+}
+
+// 3D PERLIN NOISE — Ken Perlin's reference implementation
+// base shifts coordinates to sample different noise fields
+// (matches Python noise.pnoise3(x,y,z,base=base))
+const _PBASE = [
+  151,160,137, 91, 90, 15,131, 13,201, 95, 96, 53,194,233,  7,225,
+  140, 36,103, 30, 69,142,  8, 99, 37,240, 21, 10, 23,190,  6,148,
+  247,120,234, 75,  0, 26,197, 62, 94,252,219,203,117, 35, 11, 32,
+   57,177, 33, 88,237,149, 56, 87,174, 20,125,136,171,168, 68,175,
+   74,165, 71,134,139, 48, 27,166, 77,146,158,231, 83,111,229,122,
+   60,211,133,230,220,105, 92, 41, 55, 46,245, 40,244,102,143, 54,
+   65, 25, 63,161,  1,216, 80, 73,209, 76,132,187,208, 89, 18,169,
+  200,196,135,130,116,188,159, 86,164,100,109,198,173,186,  3, 64,
+   52,217,226,250,124,123,  5,202, 38,147,118,126,255, 82, 85,212,
+  207,206, 59,227, 47, 16, 58, 17,182,189, 28, 42,223,183,170,213,
+  119,248,152,  2, 44,154,163, 70,221,153,101,155,167, 43,172,  9,
+  129, 22, 39,253, 19, 98,108,110, 79,113,224,232,178,185,112,104,
+  218,246, 97,228,251, 34,242,193,238,210,144, 12,191,179,162,241,
+   81, 51,145,235,249, 14,239,107, 49,192,214, 31,181,199,106,157,
+  184, 84,204,176,115,121, 50, 45,127,  4,150,254,138,236,205, 93,
+  222,114, 67, 29, 24, 72,243,141,128,195, 78, 66,215, 61,156,180
+];
+const _P = new Uint8Array(512);
+for (let i = 0; i < 256; i++) _P[i] = _P[i + 256] = _PBASE[i];
+
+function _fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+function _lp(t, a, b) { return a + t * (b - a); }
+function _grad(h, x, y, z) {
+  h &= 15;
+  const u = h < 8 ? x : y, v = h < 4 ? y : (h === 12 || h === 14 ? x : z);
+  return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+}
+function _raw3(x, y, z) {
+  const xi = Math.floor(x) & 255, yi = Math.floor(y) & 255, zi = Math.floor(z) & 255;
+  const xf = x - Math.floor(x), yf = y - Math.floor(y), zf = z - Math.floor(z);
+  const u = _fade(xf), v = _fade(yf), w = _fade(zf);
+  const A = _P[xi]+yi, B = _P[xi+1]+yi;
+  const AA = _P[A]+zi, AB = _P[A+1]+zi, BA = _P[B]+zi, BB = _P[B+1]+zi;
+  return _lp(w,
+    _lp(v, _lp(u,_grad(_P[AA],   xf,   yf,   zf),_grad(_P[BA],   xf-1,yf,   zf)),
+           _lp(u,_grad(_P[AB],   xf,   yf-1, zf),_grad(_P[BB],   xf-1,yf-1,zf))),
+    _lp(v, _lp(u,_grad(_P[AA+1],xf,   yf,   zf-1),_grad(_P[BA+1],xf-1,yf,   zf-1)),
+           _lp(u,_grad(_P[AB+1],xf,   yf-1, zf-1),_grad(_P[BB+1],xf-1,yf-1,zf-1))));
+}
+// Returns [0,1]; octaves with persistence=0.5, lacunarity=2, amplitude-normalized
+function perlin01(x, y, z, base, octaves) {
+  let val = 0, amp = 1, freq = 1, maxA = 0;
+  for (let o = 0; o < octaves; o++) {
+    val += _raw3(x*freq + base, y*freq + base, z*freq + base) * amp;
+    maxA += amp; amp *= 0.5; freq *= 2;
+  }
+  return (val / maxA + 1) * 0.5;
+}
+
+// LATTICE — 3-D Perlin field, one channel per element
+// Matches config.py seeds: density=seed+6, C=+1, O=+2, He=+3, H=+4, met=+5
+function generateLattice(cfg) {
+  const {seed, universeSize, elementNoiseScale, elementOctaves, latticeResolution: N} = cfg;
+  // linspace(0, universeSize*noiseScale, N) rounded to 2 dp — matches Python
+  const steps = new Float64Array(N);
+  for (let i = 0; i < N; i++)
+    steps[i] = Math.round(i / (N-1) * universeSize * elementNoiseScale * 100) / 100;
+
+  const size = N*N*N;
+  const density=new Float32Array(size), H=new Float32Array(size), He=new Float32Array(size),
+        C=new Float32Array(size), O=new Float32Array(size), met=new Float32Array(size);
+
+  for (let zi=0; zi<N; zi++) for (let yi=0; yi<N; yi++) for (let xi=0; xi<N; xi++) {
+    const idx = zi*N*N + yi*N + xi;
+    const sx=steps[xi], sy=steps[yi], sz=steps[zi];
+    const d = perlin01(sx, sy, sz, seed+6, elementOctaves);
+    density[idx] = d;
+    C[idx]   = perlin01(sx, sy, sz, seed+1, elementOctaves) * d;
+    O[idx]   = perlin01(sx, sy, sz, seed+2, elementOctaves) * d;
+    He[idx]  = perlin01(sx, sy, sz, seed+3, elementOctaves) * d;
+    H[idx]   = perlin01(sx, sy, sz, seed+4, elementOctaves) * d;
+    met[idx] = perlin01(sx, sy, sz, seed+5, elementOctaves);
+  }
+  return {density, H, He, C, O, met, N, steps};
+}
+
+// GALAXY SHAPE — elliptical, spiral, ring, lenticular, irregular
+
+// Shared geometry helper — normalized ellipsoid distances
+function _geoBase(xi, yi, zi, N, cfg) {
+  const cx = (N - 1) * 0.5;
+  const R  = cx * Math.max(0.01, cfg.sphereRadius);
+  const s  = Math.max(0.01, cfg.squashFactor);
+  return { cx, R, s,
+    rx: (xi - cx) / R,
+    ry: (yi - cx) / (R * s),
+    rz: (zi - cx) / R,
+    rn: Math.sqrt((xi-cx)**2 + (zi-cx)**2) / R  // XZ radial [0,∞)
+  };
+}
+
+// Hard oblate spheroid — 0 outside, 1 inside
+function _elliptical(xi, yi, zi, N, cfg) {
+  const {rx, ry, rz} = _geoBase(xi, yi, zi, N, cfg);
+  return rx*rx + ry*ry + rz*rz <= 1 ? 1 : 0;
+}
+
+// Logarithmic spiral arms in XZ plane, flat disk in Y
+function _spiral(xi, yi, zi, N, cfg) {
+  const {cx, ry, rn} = _geoBase(xi, yi, zi, N, cfg);
+  if (ry*ry > 1 || rn > 1) return 0;     // outside disk or sphere
+  if (rn < 0.05) return 1;               // always-on central nucleus
+  // armPitch is tan(pitch_angle), range ~0.1 (tight) to 2.0 (open)
+  const angle     = Math.atan2(zi - cx, xi - cx);
+  const logSpiral = Math.log(rn) / Math.max(0.1, cfg.armPitch);
+  const armAngle  = cfg.armCount * (angle - logSpiral);
+  const armDist   = 0.5 - 0.5 * Math.cos(armAngle);
+  const armW      = Math.exp(-armDist * armDist / Math.max(0.01, cfg.armWidth * cfg.armWidth));
+  const bulge     = Math.exp(-rn * rn * 25);
+  return Math.max(armW, bulge);
+}
+
+// Gaussian ring at ringRadius, hard Y boundary
+function _ring(xi, yi, zi, N, cfg) {
+  const {ry, rn} = _geoBase(xi, yi, zi, N, cfg);
+  if (ry*ry > 1) return 0;
+  const dr = (rn - cfg.ringRadius) / Math.max(0.01, cfg.ringWidth);
+  return Math.exp(-dr * dr);
+}
+
+// Dispatcher — returns weight in [0, 1]; 0 = outside galaxy
+function galaxyWeight(xi, yi, zi, N, cfg) {
+  if (!cfg.galaxyEnabled) return 1;
+  switch (cfg.galaxyShape) {
+    case 'spiral': return _spiral(xi, yi, zi, N, cfg);
+    case 'ring':   return _ring(xi, yi, zi, N, cfg);
+    default:       return _elliptical(xi, yi, zi, N, cfg);
+  }
+}
+
+// SYSTEMS — filter lattice cells, place with probability
+function generateSystems(lattice, rng, cfg) {
+  const {density, H, He, C, O, met, N} = lattice;
+  const {universeSize, latticeResolution, densityThreshold, HThreshold, HeThreshold} = cfg;
+  const cellSize = universeSize / latticeResolution;
+
+  // w carries shape weight so soft shapes (spiral, ring) modulate acceptance probability
+  const candidates = [];
+  for (let idx=0; idx<N*N*N; idx++) {
+    const zi=(idx/(N*N))|0, rem=idx%(N*N), yi=(rem/N)|0, xi=rem%N;
+    if (density[idx]<=densityThreshold || H[idx]<=HThreshold || He[idx]<=HeThreshold) continue;
+    const w = galaxyWeight(xi, yi, zi, N, cfg);
+    if (w < 0.15) continue;
+    candidates.push({idx, w});
+  }
+  rng.shuffle(candidates);
+
+  const systems = [];
+  for (const {idx, w} of candidates) {
+    if (rng.next() > density[idx]*H[idx]*He[idx]*w) continue;
+    const zi=(idx/(N*N))|0, rem=idx%(N*N), yi=(rem/N)|0, xi=rem%N;
+    const maxOff = cellSize*0.4;
+    systems.push({
+      id: systems.length+1,
+      x: xi*cellSize + rng.uniform(-maxOff, maxOff),
+      y: yi*cellSize + rng.uniform(-maxOff, maxOff),
+      z: zi*cellSize + rng.uniform(-maxOff, maxOff),
+      density: density[idx], H: H[idx], He: He[idx],
+      C: C[idx], O: O[idx], metallicity: met[idx]
+    });
+  }
+  return systems;
+}
+
+// STARS — Kroupa IMF → mass → luminosity → radius → temperature
+function _powerLawIntegral(lo, hi, alpha) {
+  if (alpha===1) return Math.log(hi/lo);
+  const e=1-alpha; return (Math.pow(hi,e)-Math.pow(lo,e))/e;
+}
+function _samplePL(rng, lo, hi, alpha) {
+  const e=1-alpha;
+  return Math.pow(Math.pow(lo,e)+rng.next()*(Math.pow(hi,e)-Math.pow(lo,e)), 1/e);
+}
+function _starMass(rng) {
+  const lW = _powerLawIntegral(0.179,0.50,1.3);
+  const hW = Math.pow(0.5,2.3-1.3)*_powerLawIntegral(0.50,31.0,2.3);
+  return rng.next()<lW/(lW+hW) ? _samplePL(rng,0.179,0.50,1.3) : _samplePL(rng,0.50,31.0,2.3);
+}
+function _starLum(m) {
+  const lm=Math.log10(m);
+  if (m<=0.45) return Math.pow(10,2.028*lm-0.976);
+  if (m<=0.72) return Math.pow(10,4.572*lm-0.102);
+  if (m<=1.05) return Math.pow(10,5.743*lm-0.007);
+  if (m<=2.40) return Math.pow(10,4.329*lm+0.010);
+  if (m<=7.0)  return Math.pow(10,3.967*lm+0.093);
+  return Math.pow(10,2.865*lm+1.105);
+}
+function _spectral(t) {
+  if (t>=30000) return 'O'; if (t>=10000) return 'B'; if (t>=7500) return 'A';
+  if (t>=6000) return 'F'; if (t>=5200) return 'G'; if (t>=3700) return 'K'; return 'M';
+}
+function generateStars(rng, systems, cfg) {
+  const stars = [];
+  for (let si=0; si<systems.length; si++) {
+    const sys=systems[si];
+    const n=rng.int(1, cfg.maxStarsPerSystem+1); // [1, maxStars]
+    for (let sn=0; sn<n; sn++) {
+      const mass=_starMass(rng), luminosity=_starLum(mass);
+      let radius, temperature;
+      if (mass<=1.5) {
+        radius = 0.438*mass*mass + 0.479*mass + 0.075;
+        temperature = 5772*Math.pow(luminosity/(radius*radius), 0.25);
+      } else {
+        const lm=Math.log10(mass);
+        temperature = Math.pow(10, -0.170*lm*lm + 0.888*lm + 3.671);
+        radius = Math.sqrt(luminosity/Math.pow(temperature/5772, 4));
+      }
+      stars.push({
+        id: stars.length+1, star_index: stars.length,
+        system_id: sys.id, system_index: si, star_number: sn,
+        mass, radius, luminosity, temperature,
+        spectral_type: _spectral(temperature),
+        metallicity: sys.metallicity
+      });
+    }
+  }
+  return stars;
+}
+
+// PLANETS — Poisson count, geometric orbit spacing, Chen-Kipping radii
+function _snowLine(star) { return 2.7*Math.sqrt(star.luminosity); }
+
+function generateAllPlanets(stars, rng, cfg) {
+  const planets=[]; let pid=1;
+  for (const star of stars) {
+    let e = star.mass<0.6 ? 5 : star.mass<1.0 ? 4 : star.mass<1.5 ? 3.5 : 3.0;
+    e *= (0.75 + 0.5*star.metallicity);
+    const count = Math.max(1, Math.min(rng.poisson(e), 10));
+
+    const mn=cfg.minOrbitalDistance, mx=cfg.maxOrbitalDistance;
+    const dists = count===1 ? [rng.uniform(mn,mx)]
+      : (() => {
+          const d=[rng.uniform(mn, Math.min(0.5,mx))], ratio=rng.uniform(1.5,2.5);
+          for (let i=1;i<count;i++){const nx=d[d.length-1]*ratio; if(nx>mx)break; d.push(nx);}
+          return d;
+        })();
+
+    const snow=_snowLine(star), mf=0.6+0.8*star.metallicity;
+    for (let i=0; i<dists.length; i++) {
+      const od=dists[i], inner=od<snow;
+      const rawM=Math.pow(10, rng.uniform(Math.log10(inner?0.1:1), Math.log10(inner?10:4000)));
+      const mass=Math.max(0.1, Math.min(rawM*mf, 4000));
+      const type=mass<10 ? 'terrestrial' : (od>=snow&&mass<100 ? 'ice_giant' : 'gas_giant');
+      const radius=mass<2.04 ? 1.008*Math.pow(mass,0.279) : mass<132 ? 1.008*Math.pow(mass,0.589) : 11*Math.pow(mass,-0.044);
+      const albedo=type==='ice_giant' ? rng.uniform(0.2,0.7) : type==='terrestrial' ? rng.uniform(0.1,0.6) : rng.uniform(0.2,0.6);
+      const temp=278.5*Math.pow(star.luminosity,0.25)*Math.pow(1-albedo,0.25)/Math.sqrt(od);
+      planets.push({
+        id: pid++, system_id: star.system_id, star_id: star.id,
+        orbital_order: i+1, orbital_distance: od,
+        mass, radius, planet_type: type, albedo, temperature: temp
+      });
+    }
+  }
+  return planets;
+}
+
+function generateUniverse(cfg) {
+  const rng=makePRNG(cfg.seed);
+  const lattice=generateLattice(cfg);
+  const systems=generateSystems(lattice, rng, cfg);
+  const stars=generateStars(rng, systems, cfg);
+  const planets=generateAllPlanets(stars, rng, cfg);
+  return {systems, stars, planets, moons:[], seed: cfg.seed};
+}
+
+// VIEWER
+let _renderer=null, _animId=null, _camera=null;
+let _exitSystemFn=null; // called by global Escape handler
+
+function _disposeObj(obj) {
+  if (obj.geometry) obj.geometry.dispose();
+  if (obj.material) {
+    const mats=Array.isArray(obj.material)?obj.material:[obj.material];
+    mats.forEach(m=>{ if(m.map)m.map.dispose(); m.dispose(); });
+  }
+}
+function _disposeGroup(g) { if(g) g.traverse(_disposeObj); }
+
+function destroyViewer() {
+  if (_animId!=null){cancelAnimationFrame(_animId);_animId=null;}
+  if (_renderer){
+    _renderer.dispose();
+    if(_renderer.domElement.parentNode) _renderer.domElement.parentNode.removeChild(_renderer.domElement);
+    _renderer=null;
+  }
+  _camera=null; _exitSystemFn=null;
+}
+
+function initViewer(DATA) {
+  destroyViewer();
+
+  const AU=6.0, MOON=150.0, GAP=0.45;
+  const starVR  = r=>Math.max(0.30,Math.min(0.80,0.35*r));
+  const planetVR= r=>Math.max(0.12,Math.min(0.60,0.22*Math.sqrt(Math.max(0.01,r))));
+
+  let mode='universe', currentSys=null;
+  let systemPoints=null, systemOrder=[];
+
+  const systems=DATA.systems;
+  const starsBySys={}, planetsBySys={}, moonsByPlanet={}, sysById={}, planetCount={};
+  systems.forEach(s=>{sysById[s.id]=s; planetCount[s.id]=0;});
+  DATA.stars.forEach(st=>{
+    if(!starsBySys[st.system_id]) starsBySys[st.system_id]=[];
+    starsBySys[st.system_id].push(st);
+  });
+  DATA.planets.forEach(p=>{
+    if(!planetsBySys[p.system_id]) planetsBySys[p.system_id]=[];
+    planetsBySys[p.system_id].push(p);
+    planetCount[p.system_id]=(planetCount[p.system_id]||0)+1;
+  });
+  DATA.moons.forEach(m=>{
+    if(!moonsByPlanet[m.planet_id]) moonsByPlanet[m.planet_id]=[];
+    moonsByPlanet[m.planet_id].push(m);
+  });
+
+  const container=document.getElementById('container');
+  const scene=new THREE.Scene();
+  scene.background=new THREE.Color(0x05060a);
+  const camera=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,0.1,500000);
+  _camera=camera;
+
+  const renderer=new THREE.WebGLRenderer({antialias:true});
+  renderer.setPixelRatio(devicePixelRatio);
+  renderer.setSize(innerWidth,innerHeight);
+  container.appendChild(renderer.domElement);
+  _renderer=renderer;
+
+  const controls=new THREE.OrbitControls(camera,renderer.domElement);
+  controls.enableDamping=true; controls.dampingFactor=0.08; controls.screenSpacePanning=true;
+
+  const uHalf = systems.length>0
+    ? systems.reduce((m,s)=>Math.max(m,s.x,s.y,s.z),0)*0.5
+    : 500;
+  const starDist = Math.max(6000, uHalf * 20);
+  controls.minDistance = 0.5;
+  controls.maxDistance = starDist * 0.7;
+
+  const desiredTarget=new THREE.Vector3(uHalf,uHalf,uHalf);
+  const desiredCam   =new THREE.Vector3(uHalf,uHalf*0.6,uHalf*3);
+  camera.position.copy(desiredCam); controls.target.copy(desiredTarget);
+
+  let flying=false;
+  function startFlight(camPos,target){desiredCam.copy(camPos);desiredTarget.copy(target);flying=true;controls.enabled=false;}
+  function cancelFlight(){if(flying){flying=false;controls.enabled=true;}}
+  renderer.domElement.addEventListener('pointerdown',cancelFlight);
+  renderer.domElement.addEventListener('wheel',cancelFlight,{passive:true});
+
+  const clock=new THREE.Clock();
+
+  // Background starfield — seeded so regeneration doesn't shuffle the sky
+  (function(){
+    const srng=makePRNG(DATA.seed+99);
+    const cx=uHalf, cy=uHalf, cz=uHalf;
+    const mkLayer=(n, rLo, rHi, col, sz, op)=>{
+      const pos=new Float32Array(n*3);
+      for(let i=0;i<n;i++){
+        const r=starDist*(rLo+srng.next()*(rHi-rLo));
+        const t=srng.next()*Math.PI*2, ph=Math.acos(2*srng.next()-1);
+        pos[i*3]=cx+r*Math.sin(ph)*Math.cos(t); pos[i*3+1]=cy+r*Math.cos(ph); pos[i*3+2]=cz+r*Math.sin(ph)*Math.sin(t);
+      }
+      const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+      scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:col,size:sz,sizeAttenuation:false,transparent:true,opacity:op})));
+    };
+    mkLayer(3500, 0.75, 1.0, 0x8899bb, 1.0, 0.55); // faint distant stars
+    mkLayer( 700, 0.60, 0.8, 0xddeeff, 1.8, 0.85); // brighter foreground stars
+  })();
+
+  function discTexture(){
+    const c=document.createElement('canvas'); c.width=c.height=64;
+    const x=c.getContext('2d'), g=x.createRadialGradient(32,32,0,32,32,32);
+    g.addColorStop(0,'rgba(255,255,255,1)'); g.addColorStop(0.4,'rgba(255,255,255,0.6)'); g.addColorStop(1,'rgba(255,255,255,0)');
+    x.fillStyle=g; x.fillRect(0,0,64,64); return new THREE.CanvasTexture(c);
+  }
+  const disc=discTexture();
+
+  const tooltip=document.getElementById('tooltip');
+  function metColor(m){return new THREE.Color(0x3a6bff).lerp(new THREE.Color(0xff9b3a),Math.max(0,Math.min(1,m)));}
+  const SPEC_COL={O:'#9bb0ff',B:'#aabfff',A:'#cad7ff',F:'#f8f7ff',G:'#fff4e8',K:'#ffd2a1',M:'#ffcc6f'};
+  const PL_COL={terrestrial:0x4caf50,ice_giant:0x64b5f6,gas_giant:0xff7043};
+
+  // system view
+  function buildSystems(list){
+    systemOrder=list.map(s=>s.id);
+    const pos=new Float32Array(list.length*3), col=new Float32Array(list.length*3);
+    list.forEach((s,i)=>{
+      pos[i*3]=s.x; pos[i*3+1]=s.y; pos[i*3+2]=s.z;
+      const c=metColor(s.metallicity);
+      col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b;
+    });
+    const g=new THREE.BufferGeometry();
+    g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+    g.setAttribute('color',new THREE.BufferAttribute(col,3));
+    if(systemPoints){scene.remove(systemPoints);_disposeGroup(systemPoints);}
+    const mat=new THREE.ShaderMaterial({
+      uniforms:{uRef:{value:1500},uMin:{value:3},uMax:{value:16},uOpacity:{value:1}},
+      vertexShader:[
+        'attribute vec3 color;','varying vec3 vColor;','uniform float uRef,uMin,uMax;',
+        'void main(){','  vColor=color;','  vec4 mv=modelViewMatrix*vec4(position,1.0);',
+        '  float d=max(1.0,-mv.z);','  gl_PointSize=clamp(6.0*(uRef/d),uMin,uMax);',
+        '  gl_Position=projectionMatrix*mv;','}'
+      ].join('\n'),
+      fragmentShader:[
+        'varying vec3 vColor;','uniform float uOpacity;',
+        'void main(){','  vec2 c=gl_PointCoord-0.5;','  if(dot(c,c)>0.25)discard;',
+        '  gl_FragColor=vec4(vColor,uOpacity);','}'
+      ].join('\n'),
+      transparent:true,depthWrite:false
+    });
+    systemPoints=new THREE.Points(g,mat);
+    systemPoints.frustumCulled=false;
+    scene.add(systemPoints);
+  }
+
+  // detail view
+  let detailGroup=null;
+  function clearDetail(){if(detailGroup){scene.remove(detailGroup);_disposeGroup(detailGroup);detailGroup=null;}}
+
+  // Deterministic per-planet RNG for visual randomisation (phases/inclinations)
+  function rngFor(seed){let s=(seed>>>0)||1; return()=>{s^=s<<13;s^=s>>>17;s^=s<<5;return(s>>>0)/4294967296;};}
+
+  function orbitPoint(a,phase,incl){
+    return new THREE.Vector3(a*Math.cos(phase),a*Math.sin(phase)*Math.cos(incl),a*Math.sin(phase)*Math.sin(incl));
+  }
+  function orbitRing(center,a,incl,n){
+    const pts=[];
+    for(let i=0;i<=n;i++){const th=i/n*Math.PI*2; pts.push(new THREE.Vector3(center.x+a*Math.cos(th),center.y+a*Math.sin(th)*Math.cos(incl),center.z+a*Math.sin(th)*Math.sin(incl)));}
+    return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:0x4466aa,transparent:true,opacity:0.3}));
+  }
+  function edge(a,b,color){return new THREE.Line(new THREE.BufferGeometry().setFromPoints([a,b]),new THREE.LineBasicMaterial({color,transparent:true,opacity:0.35}));}
+  function glowSprite(color,scale){
+    const m=new THREE.SpriteMaterial({map:disc,color,transparent:true,opacity:0.18,depthWrite:false,blending:THREE.AdditiveBlending});
+    const sp=new THREE.Sprite(m); sp.scale.set(scale,scale,scale); return sp;
+  }
+
+  function enterSystem(sysId){
+    const sys=sysById[sysId]; if(!sys)return;
+    mode='system'; currentSys=sysId; clearDetail();
+    const center=new THREE.Vector3(sys.x,sys.y,sys.z);
+    detailGroup=new THREE.Group(); scene.add(detailGroup);
+
+    const stars=starsBySys[sysId]||[];
+    const starPos={}, starRadius={};
+    let maxStarR=0.3;
+    stars.forEach(st=>{ maxStarR=Math.max(maxStarR,starVR(st.radius)); });
+    const starGlow=1.25*maxStarR;
+    const sep=stars.length>1 ? (2*starGlow+GAP) : 0;
+
+    stars.forEach((st,i)=>{
+      const ang=stars.length>1 ? i/stars.length*Math.PI*2 : 0;
+      const pos=center.clone().add(new THREE.Vector3(Math.cos(ang)*sep,0,Math.sin(ang)*sep));
+      starPos[st.id]=pos;
+      const r=starVR(st.radius); starRadius[st.id]=r;
+      const col=SPEC_COL[st.spectral_type]||'#ffffff';
+      const mesh=new THREE.Mesh(new THREE.SphereGeometry(r,20,20),new THREE.MeshBasicMaterial({color:col}));
+      mesh.position.copy(pos); mesh.userData={type:'star',data:st,radius:r};
+      detailGroup.add(mesh);
+      const gl=glowSprite(new THREE.Color(col),r*2.5); gl.position.copy(pos); detailGroup.add(gl);
+    });
+
+    // Non-overlapping orbit layout
+    const pl=(planetsBySys[sysId]||[]).slice().sort((a,b)=>a.orbital_distance-b.orbital_distance);
+    const orbits=[]; let prevA=null, prevR=0;
+    pl.forEach(p=>{
+      const rp=planetVR(p.radius), sr=starRadius[p.star_id]||maxStarR;
+      let a=Math.max(p.orbital_distance*AU, 1.25*sr+rp+GAP);
+      if(stars.length>1) a=Math.max(a, sep+sr+rp+GAP);
+      if(prevA!==null) a=Math.max(a, prevA+prevR+rp+GAP);
+      orbits.push(a); prevA=a; prevR=rp;
+    });
+
+    let maxOrbit=1;
+    pl.forEach((p,i)=>{
+      const a=orbits[i], c=starPos[p.star_id]||center;
+      const rand=rngFor((p.id*2654435761)>>>0);
+      const phase=rand()*Math.PI*2, incl=rand()*Math.PI;
+      maxOrbit=Math.max(maxOrbit,a);
+      const pos=c.clone().add(orbitPoint(a,phase,incl));
+      const r=planetVR(p.radius);
+      const mesh=new THREE.Mesh(new THREE.SphereGeometry(r,16,16),new THREE.MeshBasicMaterial({color:PL_COL[p.planet_type]||0xffffff}));
+      mesh.position.copy(pos); mesh.userData={type:'planet',data:p,radius:r};
+      detailGroup.add(mesh);
+      detailGroup.add(orbitRing(c,a,incl,80));
+      detailGroup.add(edge(c,pos,0x335588));
+      (moonsByPlanet[p.id]||[]).forEach(mn=>{
+        const mr=Math.max(0.001,mn.orbital_distance)*MOON;
+        const ph2=rand()*Math.PI*2, ic2=rand()*Math.PI;
+        const mp=pos.clone().add(orbitPoint(mr,ph2,ic2));
+        const mmesh=new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.06,planetVR(mn.radius)*0.6),10,10),new THREE.MeshBasicMaterial({color:0xcccccc}));
+        mmesh.position.copy(mp); mmesh.userData={type:'moon',data:mn,radius:0.1};
+        detailGroup.add(mmesh);
+        detailGroup.add(orbitRing(pos,mr,ic2,40));
+        detailGroup.add(edge(pos,mp,0x555555));
+      });
+    });
+
+    const dist=Math.max(60,(maxOrbit+1.25*maxStarR)*1.5);
+    startFlight(center.clone().add(new THREE.Vector3(0,dist*0.3,dist)),center);
+    if(systemPoints){
+      const K=120;
+      systemPoints.scale.setScalar(K);
+      systemPoints.position.copy(center.clone().multiplyScalar(1-K));
+      systemPoints.material.uniforms.uOpacity.value=0;
+    }
+    showSystemInfo(sys);
+    document.getElementById('backBtn').style.display='inline-block';
+    document.getElementById('crumb').textContent='System #'+sysId;
+  }
+
+  function exitSystem(){
+    mode='universe'; currentSys=null; clearDetail();
+    if(systemPoints){
+      systemPoints.scale.setScalar(1); systemPoints.position.set(0,0,0);
+      systemPoints.material.uniforms.uOpacity.value=1;
+    }
+    startFlight(new THREE.Vector3(uHalf,uHalf*0.6,uHalf*3),new THREE.Vector3(uHalf,uHalf,uHalf));
+    document.getElementById('info').innerHTML='Click a system to explore.';
+    document.getElementById('backBtn').style.display='none';
+    document.getElementById('crumb').textContent='Universe';
+  }
+  _exitSystemFn=exitSystem;
+
+  // picking
+  const ray=new THREE.Raycaster();
+  const mouse=new THREE.Vector2();
+  let downXY=null;
+
+  function nearestSystem(mx,my){
+    const v=new THREE.Vector3(); let best=null, bestD=18;
+    for(const id of systemOrder){
+      const s=sysById[id]; v.set(s.x,s.y,s.z).project(camera);
+      if(v.z>1)continue;
+      const sx=(v.x*0.5+0.5)*innerWidth, sy=(-v.y*0.5+0.5)*innerHeight;
+      const d=Math.hypot(sx-mx,sy-my);
+      if(d<bestD){bestD=d;best=id;}
+    }
+    return best;
+  }
+
+  renderer.domElement.addEventListener('pointerdown',e=>{downXY=[e.clientX,e.clientY];});
+  renderer.domElement.addEventListener('pointerup',e=>{
+    if(!downXY)return;
+    const dx=e.clientX-downXY[0], dy=e.clientY-downXY[1]; downXY=null;
+    if(dx*dx+dy*dy>25)return;
+    if(mode==='universe'&&systemPoints){
+      const id=nearestSystem(e.clientX,e.clientY); if(id!=null)enterSystem(id);
+    } else if(mode==='system'&&detailGroup){
+      mouse.x=(e.clientX/innerWidth)*2-1; mouse.y=-(e.clientY/innerHeight)*2+1;
+      ray.setFromCamera(mouse,camera);
+      const hits=ray.intersectObjects(detailGroup.children,false).filter(h=>h.object.userData&&h.object.userData.type);
+      if(hits.length){const o=hits[0].object; focusBody(o); showBodyInfo(o.userData.type,o.userData.data);}
+    }
+  });
+
+  renderer.domElement.addEventListener('pointermove',e=>{
+    if(flying||mode!=='universe'){tooltip.style.display='none';return;}
+    const id=nearestSystem(e.clientX,e.clientY);
+    if(id==null){tooltip.style.display='none';return;}
+    const s=sysById[id];
+    tooltip.style.display='block';
+    tooltip.style.left=(e.clientX+14)+'px'; tooltip.style.top=(e.clientY+14)+'px';
+    tooltip.innerHTML='System #'+id+'<br>met '+s.metallicity.toFixed(2)+'<br>planets '+(planetCount[id]||0);
+  });
+
+  function focusBody(o){
+    const p=o.position.clone(), r=o.userData.radius||1;
+    const dir=new THREE.Vector3().subVectors(camera.position,p).normalize();
+    startFlight(p.clone().add(dir.multiplyScalar(Math.max(8,r*8+6))),p);
+  }
+
+  // info panels
+  function row(k,v){return'<tr><td class="k">'+k+'</td><td>'+v+'</td></tr>';}
+  function showSystemInfo(s){
+    const ns=(starsBySys[s.id]||[]).length, np=planetCount[s.id]||0;
+    document.getElementById('info').innerHTML='<h3>System #'+s.id+'</h3><table>'+
+      row('metallicity',s.metallicity.toFixed(3))+row('density',s.density.toFixed(3))+
+      row('H',s.H.toFixed(3))+row('He',s.He.toFixed(3))+row('C',s.C.toFixed(3))+row('O',s.O.toFixed(3))+
+      row('stars',ns)+row('planets',np)+
+      '</table><div style="margin-top:6px;color:#7f9bc4">Click a star or planet.</div>';
+  }
+  function showBodyInfo(type,d){
+    let h='<h3>'+(type==='star'?'Star #'+d.id:type==='planet'?'Planet (order '+d.orbital_order+')':'Moon #'+d.id)+'</h3><table>';
+    if(type==='star')
+      h+=row('system',d.system_id)+row('star #',d.star_number)+row('spectral',d.spectral_type)+
+         row('mass',d.mass.toFixed(3)+' M&#9737;')+row('radius',d.radius.toFixed(3)+' R&#9737;')+
+         row('temp',d.temperature.toFixed(0)+' K')+row('luminosity',d.luminosity.toFixed(3)+' L&#9737;')+
+         row('metallicity',d.metallicity.toFixed(3));
+    else if(type==='planet')
+      h+=row('system',d.system_id)+row('star',d.star_id)+row('order',d.orbital_order)+
+         row('type',d.planet_type)+row('mass',d.mass.toFixed(2)+' M&#8853;')+
+         row('radius',d.radius.toFixed(2)+' R&#8853;')+row('temp',d.temperature.toFixed(0)+' K')+
+         row('albedo',d.albedo.toFixed(2))+row('orbit',d.orbital_distance.toFixed(3)+' AU');
+    else
+      h+=row('planet',d.planet_id)+row('order',d.orbital_order)+
+         row('mass',d.mass.toFixed(3))+row('radius',d.radius.toFixed(3))+
+         row('orbit',d.orbital_distance.toFixed(4)+' AU');
+    document.getElementById('info').innerHTML=h+'</table>';
+  }
+
+  // search/filter
+  const SPECS=['O','B','A','F','G','K','M'];
+  const specBox=document.getElementById('specBoxes');
+  specBox.innerHTML='';
+  SPECS.forEach(sp=>{
+    const l=document.createElement('label'), cb=document.createElement('input');
+    cb.type='checkbox'; cb.value=sp; cb.checked=true;
+    l.appendChild(cb); l.appendChild(document.createTextNode(sp)); specBox.appendChild(l);
+  });
+
+  function applyFilter(){
+    const metMin=+document.getElementById('metMin').value;
+    const metMax=+document.getElementById('metMax').value;
+    const minP=+document.getElementById('minP').value;
+    const specs=Array.from(document.querySelectorAll('#specBoxes input:checked')).map(c=>c.value);
+    const visible=systems.filter(s=>{
+      if(s.metallicity<metMin||s.metallicity>metMax)return false;
+      if((planetCount[s.id]||0)<minP)return false;
+      if(specs.length<SPECS.length){
+        const sp=(starsBySys[s.id]||[]).map(st=>st.spectral_type);
+        if(!sp.some(x=>specs.includes(x)))return false;
+      }
+      return true;
+    });
+    buildSystems(visible);
+    document.getElementById('matchCount').textContent=visible.length+' shown';
+    const ml=document.getElementById('matchList'); ml.innerHTML='';
+    visible.slice(0,200).forEach(s=>{
+      const d=document.createElement('div');
+      d.textContent='#'+s.id+' (met '+s.metallicity.toFixed(2)+', '+(planetCount[s.id]||0)+' pl)';
+      d.onclick=()=>enterSystem(s.id); ml.appendChild(d);
+    });
+  }
+
+  document.getElementById('applyF').onclick=applyFilter;
+  document.getElementById('backBtn').onclick=exitSystem;
+  document.getElementById('goId').onclick=()=>{
+    const v=parseInt(document.getElementById('sysId').value,10);
+    if(sysById[v])enterSystem(v);
+  };
+
+  // render loop
+  // clock.getDelta() is called every frame so dt never accumulates during flight
+  function animate(){
+    _animId=requestAnimationFrame(animate);
+    const dt=Math.min(clock.getDelta(),0.05);
+    if(flying){
+      controls.target.lerp(desiredTarget,0.1);
+      camera.position.lerp(desiredCam,0.1);
+      camera.lookAt(controls.target);
+      if(camera.position.distanceTo(desiredCam)<1.5&&controls.target.distanceTo(desiredTarget)<1.5){
+        flying=false; controls.enabled=true;
+      }
+    } else {
+      const fwd=new THREE.Vector3(); camera.getWorldDirection(fwd);
+      const right=new THREE.Vector3().crossVectors(fwd,new THREE.Vector3(0,1,0)).normalize();
+      const move=new THREE.Vector3();
+      if(_keys.KeyW)move.add(fwd); if(_keys.KeyS)move.sub(fwd);
+      if(_keys.KeyD)move.add(right); if(_keys.KeyA)move.sub(right);
+      if(_keys.Space)move.y+=1;
+      if(_keys.ControlLeft||_keys.ControlRight)move.y-=1;
+      if(move.lengthSq()>0){
+        const sp=(_keys.ShiftLeft||_keys.ShiftRight?700:150)*dt;
+        camera.position.addScaledVector(move.normalize(),sp);
+        controls.target.addScaledVector(move,sp); // move already normalized
+      }
+      controls.update();
+    }
+    renderer.render(scene,camera);
+  }
+
+  applyFilter(); // populates system points via buildSystems
+  animate();
+}
+
+// GLOBAL INPUT HANDLERS (registered once; survive re-init)
+const _keys={};
+
+(function(){
+  function typing(){return document.activeElement&&/INPUT|TEXTAREA/.test(document.activeElement.tagName);}
+  window.addEventListener('keydown',e=>{
+    if(typing())return;
+    _keys[e.code]=true;
+    if(e.code==='Space')e.preventDefault();
+    if(e.key==='Escape'&&_exitSystemFn)_exitSystemFn();
+  });
+  window.addEventListener('keyup',e=>{_keys[e.code]=false;});
+  window.addEventListener('resize',()=>{
+    if(_camera&&_renderer){
+      _camera.aspect=innerWidth/innerHeight;
+      _camera.updateProjectionMatrix();
+      _renderer.setSize(innerWidth,innerHeight);
+    }
+  });
+})();
+
+// CONFIG PANEL + REGENERATE
+function readCfg(){
+  return {
+    seed:                +document.getElementById('cfg-seed').value,
+    universeSize:        +document.getElementById('cfg-universeSize').value,
+    elementNoiseScale:   +document.getElementById('cfg-noiseScale').value,
+    elementOctaves:      Math.max(1,+document.getElementById('cfg-octaves').value|0),
+    latticeResolution:   Math.max(5,Math.min(80,+document.getElementById('cfg-latticeRes').value|0)),
+    densityThreshold:    +document.getElementById('cfg-densityThresh').value,
+    HThreshold:          +document.getElementById('cfg-HThresh').value,
+    HeThreshold:         +document.getElementById('cfg-HeThresh').value,
+    maxStarsPerSystem:   Math.max(1,+document.getElementById('cfg-maxStars').value|0),
+    minOrbitalDistance:  +document.getElementById('cfg-minOrbit').value,
+    maxOrbitalDistance:  +document.getElementById('cfg-maxOrbit').value,
+    galaxyEnabled:  document.getElementById('cfg-galaxyEnabled').checked,
+    galaxyShape:    document.getElementById('cfg-galaxyShape').value,
+    sphereRadius:   +document.getElementById('cfg-sphereRadius').value,
+    squashFactor:   +document.getElementById('cfg-squashFactor').value,
+    armCount:       Math.max(1, +document.getElementById('cfg-armCount').value | 0),
+    armPitch:       +document.getElementById('cfg-armPitch').value,
+    armWidth:       +document.getElementById('cfg-armWidth').value,
+    ringRadius:     +document.getElementById('cfg-ringRadius').value,
+    ringWidth:      +document.getElementById('cfg-ringWidth').value,
+  };
+}
+
+document.getElementById('cfgToggle').addEventListener('click',()=>{
+  const body=document.getElementById('cfgBody'), open=body.classList.toggle('open');
+  document.getElementById('cfgToggle').textContent=open?'⚙ Generator Config ▴':'⚙ Generator Config ▾';
+});
+
+document.getElementById('regenBtn').addEventListener('click',()=>{
+  document.getElementById('regenBtn').disabled=true;
+  setTimeout(()=>document.getElementById('regenBtn').disabled=false,2000);
+  runGeneration(readCfg());
+});
+
+function runGeneration(cfg){
+  const ld=document.getElementById('loading'), det=document.getElementById('loading-detail');
+  ld.style.display='flex';
+  det.textContent='Seed: '+cfg.seed+' · Lattice: '+cfg.latticeResolution+'³';
+  // Yield so loading screen paints before blocking computation
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    try {
+      const data=generateUniverse(cfg);
+      initViewer(data);
+      document.getElementById('info').innerHTML='Click a system to explore.';
+      document.getElementById('statsLine').textContent=
+        data.systems.length+' systems · '+data.stars.length+' stars · '+data.planets.length+' planets';
+    } catch(err) {
+      document.getElementById('info').innerHTML='<span style="color:#ff7043">Generation error: '+err.message+'</span>';
+      console.error(err);
+    }
+    ld.style.display='none';
+  }));
+}
+
+// Show/hide galaxy sub-controls based on checkbox + shape select
+(function () {
+  const shapeSelect = document.getElementById('cfg-galaxyShape');
+  const galaxyCheck = document.getElementById('cfg-galaxyEnabled');
+  function updateGalaxyUI() {
+    const enabled = galaxyCheck.checked;
+    const s = shapeSelect.value;
+    document.querySelectorAll('.cfg-galaxy-sub').forEach(el => {
+      el.style.display = enabled ? '' : 'none';
+    });
+    document.querySelectorAll('.cfg-spiral').forEach(el => {
+      el.style.display = (enabled && s === 'spiral') ? '' : 'none';
+    });
+    document.querySelectorAll('.cfg-ring').forEach(el => {
+      el.style.display = (enabled && s === 'ring') ? '' : 'none';
+    });
+  }
+  shapeSelect.addEventListener('change', updateGalaxyUI);
+  galaxyCheck.addEventListener('change', updateGalaxyUI);
+  updateGalaxyUI();
+})();
+
+// Initial generation on page load
+runGeneration(readCfg());
+</script>
+</body>
+</html>
