@@ -83,21 +83,6 @@ label{display:inline-block;margin:1px 4px 1px 0}
     <div class="row"><span>Density thresh</span><input id="cfg-densityThresh" type="number" step="0.05" min="0" max="1" value="0.5" class="wide"/></div>
     <div class="row"><span>H thresh</span><input id="cfg-HThresh" type="number" step="0.05" min="0" max="1" value="0.3" class="wide"/></div>
     <div class="row"><span>He thresh</span><input id="cfg-HeThresh" type="number" step="0.05" min="0" max="1" value="0.3" class="wide"/></div>
-    <div class="row"><label><input id="cfg-galaxyEnabled" type="checkbox" checked/> Galaxy shape</label></div>
-    <div class="row cfg-galaxy-sub"><span>Shape</span>
-      <select id="cfg-galaxyShape" style="background:#0b1120;color:#cfe3ff;border:1px solid #1d2a44;border-radius:4px;padding:2px 4px;font-family:inherit;font-size:12px">
-        <option value="elliptical">Elliptical</option>
-        <option value="spiral">Spiral</option>
-        <option value="ring">Ring</option>
-      </select>
-    </div>
-    <div class="row cfg-galaxy-sub"><span>Sphere radius</span><input id="cfg-sphereRadius" type="number" step="0.05" min="0.1" max="1.5" value="0.9" class="wide"/></div>
-    <div class="row cfg-galaxy-sub"><span>Squash (Y)</span><input id="cfg-squashFactor" type="number" step="0.05" min="0.05" max="1" value="0.18" class="wide"/></div>
-    <div class="row cfg-spiral cfg-galaxy-sub"><span>Arms</span><input id="cfg-armCount" type="number" min="1" max="6" value="2" class="wide"/></div>
-    <div class="row cfg-spiral cfg-galaxy-sub"><span>Arm pitch</span><input id="cfg-armPitch" type="number" step="0.1" min="0.1" max="2" value="0.4" class="wide"/></div>
-    <div class="row cfg-spiral cfg-galaxy-sub"><span>Arm width</span><input id="cfg-armWidth" type="number" step="0.05" min="0.05" max="0.8" value="0.22" class="wide"/></div>
-    <div class="row cfg-ring cfg-galaxy-sub"><span>Ring radius</span><input id="cfg-ringRadius" type="number" step="0.05" min="0.1" max="0.9" value="0.6" class="wide"/></div>
-    <div class="row cfg-ring cfg-galaxy-sub"><span>Ring width</span><input id="cfg-ringWidth" type="number" step="0.05" min="0.05" max="0.4" value="0.15" class="wide"/></div>
     <div class="row"><span>Max stars/sys</span><input id="cfg-maxStars" type="number" min="1" max="5" value="3" class="wide"/></div>
     <div class="row"><span>Min orbit (AU)</span><input id="cfg-minOrbit" type="number" step="0.01" min="0.01" value="0.05" class="wide"/></div>
     <div class="row"><span>Max orbit (AU)</span><input id="cfg-maxOrbit" type="number" min="1" value="30" class="wide"/></div>
@@ -246,82 +231,27 @@ function generateLattice(cfg) {
   return {density, H, He, C, O, met, N, steps};
 }
 
-// GALAXY SHAPE — elliptical, spiral, ring, lenticular, irregular
-
-// Shared geometry helper — normalized ellipsoid distances
-function _geoBase(xi, yi, zi, N, cfg) {
-  const cx = (N - 1) * 0.5;
-  const R  = cx * Math.max(0.01, cfg.sphereRadius);
-  const s  = Math.max(0.01, cfg.squashFactor);
-  return { cx, R, s,
-    rx: (xi - cx) / R,
-    ry: (yi - cx) / (R * s),
-    rz: (zi - cx) / R,
-    rn: Math.sqrt((xi-cx)**2 + (zi-cx)**2) / R  // XZ radial [0,∞)
-  };
-}
-
-// Hard oblate spheroid — 0 outside, 1 inside
-function _elliptical(xi, yi, zi, N, cfg) {
-  const {rx, ry, rz} = _geoBase(xi, yi, zi, N, cfg);
-  return rx*rx + ry*ry + rz*rz <= 1 ? 1 : 0;
-}
-
-// Logarithmic spiral arms in XZ plane, flat disk in Y
-function _spiral(xi, yi, zi, N, cfg) {
-  const {cx, ry, rn} = _geoBase(xi, yi, zi, N, cfg);
-  if (ry*ry > 1 || rn > 1) return 0;     // outside disk or sphere
-  if (rn < 0.05) return 1;               // always-on central nucleus
-  // armPitch is tan(pitch_angle), range ~0.1 (tight) to 2.0 (open)
-  const angle     = Math.atan2(zi - cx, xi - cx);
-  const logSpiral = Math.log(rn) / Math.max(0.1, cfg.armPitch);
-  const armAngle  = cfg.armCount * (angle - logSpiral);
-  const armDist   = 0.5 - 0.5 * Math.cos(armAngle);
-  const armW      = Math.exp(-armDist * armDist / Math.max(0.01, cfg.armWidth * cfg.armWidth));
-  const bulge     = Math.exp(-rn * rn * 25);
-  return Math.max(armW, bulge);
-}
-
-// Gaussian ring at ringRadius, hard Y boundary
-function _ring(xi, yi, zi, N, cfg) {
-  const {ry, rn} = _geoBase(xi, yi, zi, N, cfg);
-  if (ry*ry > 1) return 0;
-  const dr = (rn - cfg.ringRadius) / Math.max(0.01, cfg.ringWidth);
-  return Math.exp(-dr * dr);
-}
-
-// Dispatcher — returns weight in [0, 1]; 0 = outside galaxy
-function galaxyWeight(xi, yi, zi, N, cfg) {
-  if (!cfg.galaxyEnabled) return 1;
-  switch (cfg.galaxyShape) {
-    case 'spiral': return _spiral(xi, yi, zi, N, cfg);
-    case 'ring':   return _ring(xi, yi, zi, N, cfg);
-    default:       return _elliptical(xi, yi, zi, N, cfg);
-  }
-}
-
-// SYSTEMS — filter lattice cells, place with probability
+// SYSTEMS — filter lattice cells by threshold, shuffle, place with probability
+// Matches systems.py:generate_systems exactly
 function generateSystems(lattice, rng, cfg) {
   const {density, H, He, C, O, met, N} = lattice;
-  const {universeSize, latticeResolution, densityThreshold, HThreshold, HeThreshold} = cfg;
-  const cellSize = universeSize / latticeResolution;
+  const {universeSize, densityThreshold, HThreshold, HeThreshold} = cfg;
+  const cellSize = universeSize / N;
 
-  // w carries shape weight so soft shapes (spiral, ring) modulate acceptance probability
   const candidates = [];
-  for (let idx=0; idx<N*N*N; idx++) {
-    const zi=(idx/(N*N))|0, rem=idx%(N*N), yi=(rem/N)|0, xi=rem%N;
-    if (density[idx]<=densityThreshold || H[idx]<=HThreshold || He[idx]<=HeThreshold) continue;
-    const w = galaxyWeight(xi, yi, zi, N, cfg);
-    if (w < 0.15) continue;
-    candidates.push({idx, w});
+  for (let idx = 0; idx < N*N*N; idx++) {
+    if (density[idx] <= densityThreshold) continue;
+    if (H[idx] <= HThreshold) continue;
+    if (He[idx] <= HeThreshold) continue;
+    candidates.push(idx);
   }
   rng.shuffle(candidates);
 
   const systems = [];
-  for (const {idx, w} of candidates) {
-    if (rng.next() > density[idx]*H[idx]*He[idx]*w) continue;
+  for (const idx of candidates) {
+    if (rng.next() > density[idx] * H[idx] * He[idx]) continue;
     const zi=(idx/(N*N))|0, rem=idx%(N*N), yi=(rem/N)|0, xi=rem%N;
-    const maxOff = cellSize*0.4;
+    const maxOff = cellSize * 0.4;
     systems.push({
       id: systems.length+1,
       x: xi*cellSize + rng.uniform(-maxOff, maxOff),
@@ -335,54 +265,92 @@ function generateSystems(lattice, rng, cfg) {
 }
 
 // STARS — Kroupa IMF → mass → luminosity → radius → temperature
+// Matches stars.py function-for-function
+
 function _powerLawIntegral(lo, hi, alpha) {
-  if (alpha===1) return Math.log(hi/lo);
-  const e=1-alpha; return (Math.pow(hi,e)-Math.pow(lo,e))/e;
+  if (alpha === 1) return Math.log(hi/lo);
+  const e = 1-alpha; return (Math.pow(hi,e)-Math.pow(lo,e))/e;
 }
 function _samplePL(rng, lo, hi, alpha) {
-  const e=1-alpha;
+  const e = 1-alpha;
   return Math.pow(Math.pow(lo,e)+rng.next()*(Math.pow(hi,e)-Math.pow(lo,e)), 1/e);
 }
+
+// stars.py: generate_mass
 function _starMass(rng) {
-  const lW = _powerLawIntegral(0.179,0.50,1.3);
-  const hW = Math.pow(0.5,2.3-1.3)*_powerLawIntegral(0.50,31.0,2.3);
-  return rng.next()<lW/(lW+hW) ? _samplePL(rng,0.179,0.50,1.3) : _samplePL(rng,0.50,31.0,2.3);
+  const lW = _powerLawIntegral(0.179, 0.50, 1.3);
+  const hW = Math.pow(0.5, 2.3-1.3) * _powerLawIntegral(0.50, 31.0, 2.3);
+  return rng.next() < lW/(lW+hW)
+    ? _samplePL(rng, 0.179, 0.50, 1.3)
+    : _samplePL(rng, 0.50, 31.0, 2.3);
 }
-function _starLum(m) {
-  const lm=Math.log10(m);
-  if (m<=0.45) return Math.pow(10,2.028*lm-0.976);
-  if (m<=0.72) return Math.pow(10,4.572*lm-0.102);
-  if (m<=1.05) return Math.pow(10,5.743*lm-0.007);
-  if (m<=2.40) return Math.pow(10,4.329*lm+0.010);
-  if (m<=7.0)  return Math.pow(10,3.967*lm+0.093);
-  return Math.pow(10,2.865*lm+1.105);
+
+// stars.py: generate_luminosity
+function _starLuminosity(m) {
+  const lm = Math.log10(m);
+  if (m <= 0.45) return Math.pow(10, 2.028*lm - 0.976);
+  if (m <= 0.72) return Math.pow(10, 4.572*lm - 0.102);
+  if (m <= 1.05) return Math.pow(10, 5.743*lm - 0.007);
+  if (m <= 2.40) return Math.pow(10, 4.329*lm + 0.010);
+  if (m <= 7.0)  return Math.pow(10, 3.967*lm + 0.093);
+  return Math.pow(10, 2.865*lm + 1.105);
 }
-function _spectral(t) {
-  if (t>=30000) return 'O'; if (t>=10000) return 'B'; if (t>=7500) return 'A';
-  if (t>=6000) return 'F'; if (t>=5200) return 'G'; if (t>=3700) return 'K'; return 'M';
+
+// stars.py: generate_temperature
+function _starTemperature(mass, luminosity, radius) {
+  if (mass > 1.5) {
+    const lm = Math.log10(mass);
+    return Math.pow(10, -0.170*lm*lm + 0.888*lm + 3.671);
+  }
+  return 5772 * Math.pow(luminosity / (radius*radius), 0.25);
 }
+
+// stars.py: generate_radius
+function _starRadius(mass, luminosity) {
+  if (mass <= 1.5)
+    return 0.438*mass*mass + 0.479*mass + 0.075;
+  const temp = _starTemperature(mass);
+  return Math.sqrt(luminosity / Math.pow(temp/5772, 4));
+}
+
+// stars.py: generate_spectral_type
+function _starSpectralType(t) {
+  if (t >= 30000) return 'O'; if (t >= 10000) return 'B'; if (t >= 7500) return 'A';
+  if (t >= 6000)  return 'F'; if (t >= 5200)  return 'G'; if (t >= 3700) return 'K';
+  return 'M';
+}
+
+// stars.py: generate_star
+function _generateStar(rng, system) {
+  const mass = _starMass(rng);
+  const luminosity = _starLuminosity(mass);
+  let radius, temperature;
+  if (mass <= 1.5) {
+    radius = _starRadius(mass, luminosity);
+    temperature = _starTemperature(mass, luminosity, radius);
+  } else {
+    temperature = _starTemperature(mass);
+    radius = _starRadius(mass, luminosity);
+  }
+  return {mass, luminosity, radius, temperature,
+    spectral_type: _starSpectralType(temperature),
+    metallicity: system.metallicity};
+}
+
+// stars.py: generate_stars
 function generateStars(rng, systems, cfg) {
   const stars = [];
-  for (let si=0; si<systems.length; si++) {
-    const sys=systems[si];
-    const n=rng.int(1, cfg.maxStarsPerSystem+1); // [1, maxStars]
-    for (let sn=0; sn<n; sn++) {
-      const mass=_starMass(rng), luminosity=_starLum(mass);
-      let radius, temperature;
-      if (mass<=1.5) {
-        radius = 0.438*mass*mass + 0.479*mass + 0.075;
-        temperature = 5772*Math.pow(luminosity/(radius*radius), 0.25);
-      } else {
-        const lm=Math.log10(mass);
-        temperature = Math.pow(10, -0.170*lm*lm + 0.888*lm + 3.671);
-        radius = Math.sqrt(luminosity/Math.pow(temperature/5772, 4));
-      }
+  for (let si = 0; si < systems.length; si++) {
+    const sys = systems[si];
+    const n = rng.int(1, cfg.maxStarsPerSystem+1);
+    for (let sn = 0; sn < n; sn++) {
+      const s = _generateStar(rng, sys);
       stars.push({
         id: stars.length+1, star_index: stars.length,
         system_id: sys.id, system_index: si, star_number: sn,
-        mass, radius, luminosity, temperature,
-        spectral_type: _spectral(temperature),
-        metallicity: sys.metallicity
+        mass: s.mass, luminosity: s.luminosity, radius: s.radius,
+        temperature: s.temperature, spectral_type: s.spectral_type,
+        metallicity: s.metallicity
       });
     }
   }
@@ -390,37 +358,97 @@ function generateStars(rng, systems, cfg) {
 }
 
 // PLANETS — Poisson count, geometric orbit spacing, Chen-Kipping radii
-function _snowLine(star) { return 2.7*Math.sqrt(star.luminosity); }
+// Matches planets.py function-for-function
 
+// planets.py: generate_planet_count
+function _planetCount(star, rng) {
+  const m = star.mass;
+  let e = m < 0.6 ? 5 : m < 1.0 ? 4 : m < 1.5 ? 3.5 : 3.0;
+  e *= 0.75 + 0.5*star.metallicity;
+  return Math.max(1, Math.min(rng.poisson(e), 10));
+}
+
+// planets.py: generate_snow_line
+function _snowLine(star) { return 2.7 * Math.sqrt(star.luminosity); }
+
+// planets.py: generate_orbital_distances
+function _orbitalDistances(count, star, rng, cfg) {
+  const mn = cfg.minOrbitalDistance, mx = cfg.maxOrbitalDistance;
+  if (count === 1) return [rng.uniform(mn, mx)];
+  const d = [rng.uniform(mn, Math.min(0.5, mx))];
+  const ratio = rng.uniform(1.5, 2.5);
+  for (let i = 1; i < count; i++) {
+    const nx = d[d.length-1] * ratio;
+    if (nx > mx) break;
+    d.push(nx);
+  }
+  return d;
+}
+
+// planets.py: generate_planet_mass
+function _planetMass(star, od, rng) {
+  const snow = _snowLine(star);
+  const mf = 0.6 + 0.8*star.metallicity;
+  const mn = od < snow ? 0.1 : 1.0;
+  const mx = od < snow ? 10.0 : 4000.0;
+  const raw = Math.pow(10, rng.uniform(Math.log10(mn), Math.log10(mx)));
+  return Math.max(0.1, Math.min(raw * mf, 4000));
+}
+
+// planets.py: generate_planet_type
+function _planetType(mass, od, star) {
+  const snow = _snowLine(star);
+  if (mass < 10) return 'terrestrial';
+  if (od >= snow && mass < 100) return 'ice_giant';
+  return 'gas_giant';
+}
+
+// planets.py: generate_radius (Chen-Kipping)
+function _planetRadius(mass) {
+  if (mass < 2.04)  return 1.008 * Math.pow(mass,  0.279);
+  if (mass < 132)   return 1.008 * Math.pow(mass,  0.589);
+  return 11 * Math.pow(mass, -0.044);
+}
+
+// planets.py: generate_albedo
+function _albedo(type, rng) {
+  if (type === 'terrestrial') return rng.uniform(0.1, 0.6);
+  if (type === 'ice_giant')   return rng.uniform(0.2, 0.7);
+  return rng.uniform(0.2, 0.6);
+}
+
+// planets.py: generate_temperature (equilibrium)
+function _planetTemp(lum, od, albedo) {
+  return 278.5 * Math.pow(lum, 0.25) * Math.pow(1-albedo, 0.25) / Math.sqrt(od);
+}
+
+// planets.py: generate_planet
+function _generatePlanet(star, orbitalOrder, od, rng) {
+  const mass   = _planetMass(star, od, rng);
+  const type   = _planetType(mass, od, star);
+  const radius = _planetRadius(mass);
+  const albedo = _albedo(type, rng);
+  const temp   = _planetTemp(star.luminosity, od, albedo);
+  return {orbital_order: orbitalOrder, orbital_distance: od,
+    mass, radius, planet_type: type, albedo, temperature: temp};
+}
+
+// planets.py: generate_planets
+function _generatePlanets(star, rng, cfg) {
+  const count = _planetCount(star, rng);
+  const dists = _orbitalDistances(count, star, rng, cfg);
+  const planets = [];
+  for (let i = 0; i < dists.length; i++)
+    planets.push(_generatePlanet(star, i+1, dists[i], rng));
+  return planets;
+}
+
+// planets.py: generate_all_planets
 function generateAllPlanets(stars, rng, cfg) {
-  const planets=[]; let pid=1;
+  const planets = []; let pid = 1;
   for (const star of stars) {
-    let e = star.mass<0.6 ? 5 : star.mass<1.0 ? 4 : star.mass<1.5 ? 3.5 : 3.0;
-    e *= (0.75 + 0.5*star.metallicity);
-    const count = Math.max(1, Math.min(rng.poisson(e), 10));
-
-    const mn=cfg.minOrbitalDistance, mx=cfg.maxOrbitalDistance;
-    const dists = count===1 ? [rng.uniform(mn,mx)]
-      : (() => {
-          const d=[rng.uniform(mn, Math.min(0.5,mx))], ratio=rng.uniform(1.5,2.5);
-          for (let i=1;i<count;i++){const nx=d[d.length-1]*ratio; if(nx>mx)break; d.push(nx);}
-          return d;
-        })();
-
-    const snow=_snowLine(star), mf=0.6+0.8*star.metallicity;
-    for (let i=0; i<dists.length; i++) {
-      const od=dists[i], inner=od<snow;
-      const rawM=Math.pow(10, rng.uniform(Math.log10(inner?0.1:1), Math.log10(inner?10:4000)));
-      const mass=Math.max(0.1, Math.min(rawM*mf, 4000));
-      const type=mass<10 ? 'terrestrial' : (od>=snow&&mass<100 ? 'ice_giant' : 'gas_giant');
-      const radius=mass<2.04 ? 1.008*Math.pow(mass,0.279) : mass<132 ? 1.008*Math.pow(mass,0.589) : 11*Math.pow(mass,-0.044);
-      const albedo=type==='ice_giant' ? rng.uniform(0.2,0.7) : type==='terrestrial' ? rng.uniform(0.1,0.6) : rng.uniform(0.2,0.6);
-      const temp=278.5*Math.pow(star.luminosity,0.25)*Math.pow(1-albedo,0.25)/Math.sqrt(od);
-      planets.push({
-        id: pid++, system_id: star.system_id, star_id: star.id,
-        orbital_order: i+1, orbital_distance: od,
-        mass, radius, planet_type: type, albedo, temperature: temp
-      });
+    for (const p of _generatePlanets(star, rng, cfg)) {
+      planets.push({id: pid++, system_id: star.system_id, star_id: star.id, ...p});
     }
   }
   return planets;
@@ -867,26 +895,17 @@ const _keys={};
 // CONFIG PANEL + REGENERATE
 function readCfg(){
   return {
-    seed:                +document.getElementById('cfg-seed').value,
-    universeSize:        +document.getElementById('cfg-universeSize').value,
-    elementNoiseScale:   +document.getElementById('cfg-noiseScale').value,
-    elementOctaves:      Math.max(1,+document.getElementById('cfg-octaves').value|0),
-    latticeResolution:   Math.max(5,Math.min(80,+document.getElementById('cfg-latticeRes').value|0)),
-    densityThreshold:    +document.getElementById('cfg-densityThresh').value,
-    HThreshold:          +document.getElementById('cfg-HThresh').value,
-    HeThreshold:         +document.getElementById('cfg-HeThresh').value,
-    maxStarsPerSystem:   Math.max(1,+document.getElementById('cfg-maxStars').value|0),
-    minOrbitalDistance:  +document.getElementById('cfg-minOrbit').value,
-    maxOrbitalDistance:  +document.getElementById('cfg-maxOrbit').value,
-    galaxyEnabled:  document.getElementById('cfg-galaxyEnabled').checked,
-    galaxyShape:    document.getElementById('cfg-galaxyShape').value,
-    sphereRadius:   +document.getElementById('cfg-sphereRadius').value,
-    squashFactor:   +document.getElementById('cfg-squashFactor').value,
-    armCount:       Math.max(1, +document.getElementById('cfg-armCount').value | 0),
-    armPitch:       +document.getElementById('cfg-armPitch').value,
-    armWidth:       +document.getElementById('cfg-armWidth').value,
-    ringRadius:     +document.getElementById('cfg-ringRadius').value,
-    ringWidth:      +document.getElementById('cfg-ringWidth').value,
+    seed:               +document.getElementById('cfg-seed').value,
+    universeSize:       +document.getElementById('cfg-universeSize').value,
+    elementNoiseScale:  +document.getElementById('cfg-noiseScale').value,
+    elementOctaves:     Math.max(1, +document.getElementById('cfg-octaves').value|0),
+    latticeResolution:  Math.max(5, Math.min(80, +document.getElementById('cfg-latticeRes').value|0)),
+    densityThreshold:   +document.getElementById('cfg-densityThresh').value,
+    HThreshold:         +document.getElementById('cfg-HThresh').value,
+    HeThreshold:        +document.getElementById('cfg-HeThresh').value,
+    maxStarsPerSystem:  Math.max(1, +document.getElementById('cfg-maxStars').value|0),
+    minOrbitalDistance: +document.getElementById('cfg-minOrbit').value,
+    maxOrbitalDistance: +document.getElementById('cfg-maxOrbit').value,
   };
 }
 
@@ -920,28 +939,6 @@ function runGeneration(cfg){
     ld.style.display='none';
   }));
 }
-
-// Show/hide galaxy sub-controls based on checkbox + shape select
-(function () {
-  const shapeSelect = document.getElementById('cfg-galaxyShape');
-  const galaxyCheck = document.getElementById('cfg-galaxyEnabled');
-  function updateGalaxyUI() {
-    const enabled = galaxyCheck.checked;
-    const s = shapeSelect.value;
-    document.querySelectorAll('.cfg-galaxy-sub').forEach(el => {
-      el.style.display = enabled ? '' : 'none';
-    });
-    document.querySelectorAll('.cfg-spiral').forEach(el => {
-      el.style.display = (enabled && s === 'spiral') ? '' : 'none';
-    });
-    document.querySelectorAll('.cfg-ring').forEach(el => {
-      el.style.display = (enabled && s === 'ring') ? '' : 'none';
-    });
-  }
-  shapeSelect.addEventListener('change', updateGalaxyUI);
-  galaxyCheck.addEventListener('change', updateGalaxyUI);
-  updateGalaxyUI();
-})();
 
 // Initial generation on page load
 runGeneration(readCfg());

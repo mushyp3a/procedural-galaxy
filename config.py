@@ -6,7 +6,7 @@ import numpy as np
 
 @dataclass
 class Config:
-    seed: int = 125
+    seed: int = 128
 
     carbon_seed: int = field(init=False)
     oxygen_seed: int = field(init=False)
