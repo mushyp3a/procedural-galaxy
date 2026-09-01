@@ -48,6 +48,9 @@ label{display:inline-block;margin:1px 4px 1px 0}
 .spinner{width:36px;height:36px;border:3px solid #1d2a44;border-top-color:#9fd0ff;
   border-radius:50%;animation:spin 0.8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+.body-item{cursor:pointer;padding:2px 5px;border-radius:3px;display:flex;gap:6px;align-items:center}
+.body-item:hover{background:#16335c}
+.body-item.sel{background:#1d447d}
 </style>
 </head>
 <body>
@@ -83,7 +86,7 @@ label{display:inline-block;margin:1px 4px 1px 0}
     <div class="row"><span>Density thresh</span><input id="cfg-densityThresh" type="number" step="0.05" min="0" max="1" value="0.5" class="wide"/></div>
     <div class="row"><span>H thresh</span><input id="cfg-HThresh" type="number" step="0.05" min="0" max="1" value="0.3" class="wide"/></div>
     <div class="row"><span>He thresh</span><input id="cfg-HeThresh" type="number" step="0.05" min="0" max="1" value="0.3" class="wide"/></div>
-    <div class="row"><span>Max stars/sys</span><input id="cfg-maxStars" type="number" min="1" max="5" value="3" class="wide"/></div>
+    <div class="row"><span>Max stars/sys</span><input id="cfg-maxStars" type="number" min="1" max="3" value="3" class="wide"/></div>
     <div class="row"><span>Min orbit (AU)</span><input id="cfg-minOrbit" type="number" step="0.01" min="0.01" value="0.05" class="wide"/></div>
     <div class="row"><span>Max orbit (AU)</span><input id="cfg-maxOrbit" type="number" min="1" value="30" class="wide"/></div>
     <button id="regenBtn">↻ Regenerate</button>
@@ -100,8 +103,7 @@ label{display:inline-block;margin:1px 4px 1px 0}
 
 <div id="controls" class="panel">
   <h3>Controls</h3>
-  <div><b>WASD</b>: move &middot; <b>Shift</b>: boost</div>
-  <div><b>Space</b>: up &middot; <b>Ctrl</b>: down</div>
+  <div><b>Space</b>: center camera</div>
   <div>Left-drag: orbit &middot; Wheel: zoom</div>
   <div>Right-drag: pan</div>
   <div>Click system to fly in &middot; <b>Esc</b>: back</div>
@@ -477,18 +479,85 @@ function generateAllPlanets(stars, rng, cfg) {
   return planets;
 }
 
+// =========================
+// moons
+// =========================
+
+function _moonCount(planet, rng) {
+  const lam = planet.planet_type === 'gas_giant' ? 5
+            : planet.planet_type === 'ice_giant'  ? 2 : 0.15;
+  return Math.min(rng.poisson(lam), 12);
+}
+
+function _moonMass(planet, rng) {
+  return planet.mass * Math.pow(10, rng.uniform(-5, Math.log10(0.02)));
+}
+
+function _moonRadius(mass) {
+  return 1.008 * Math.pow(Math.max(mass, 1e-6), 0.279);
+}
+
+function _moonType(moonOD, planet, star) {
+  return planet.orbital_distance > _snowLine(star) ? 'icy' : 'rocky';
+}
+
+function _moonOrbitalDistances(planet, star, count, rng) {
+  if (count === 0) return [];
+  const roche = 2.5 * planet.radius * 4.26e-5;
+  // mirror viewer planetVR formula (0.22√r, clamped [0.12,0.60]) + MOON=150 scale
+  // so innermost moon's orbit clears the planet mesh by 0.5 visual units
+  const pvr   = Math.max(0.12, Math.min(0.60, 0.22 * Math.sqrt(Math.max(0.01, planet.radius))));
+  const minD  = Math.max(roche, (pvr + 0.5) / 150);
+  const hill  = 0.5 * planet.orbital_distance
+                * Math.pow(planet.mass / (3 * star.mass * 333000), 1/3);
+  const maxD  = Math.min(hill, minD * 60);
+  if (maxD <= minD) return [];
+  const dists = [];
+  let d = minD * rng.uniform(1.0, 2.0);
+  const ratio = rng.uniform(1.8, 3.2);
+  for (let i = 0; i < count && d <= maxD; i++) {
+    dists.push(d);
+    d *= ratio * rng.uniform(0.8, 1.2);
+  }
+  return dists;
+}
+
+function _generateMoons(planet, star, rng) {
+  const count = _moonCount(planet, rng);
+  const dists = _moonOrbitalDistances(planet, star, count, rng);
+  return dists.map((od, i) => {
+    const mass = _moonMass(planet, rng);
+    return {orbital_order: i+1, orbital_distance: od,
+            mass, radius: _moonRadius(mass), moon_type: _moonType(od, planet, star)};
+  });
+}
+
+function generateAllMoons(planets, starsById, rng) {
+  const moons = []; let mid = 1;
+  for (const planet of planets) {
+    const star = starsById[planet.star_id];
+    if (!star) continue;
+    for (const m of _generateMoons(planet, star, rng))
+      moons.push({id: mid++, planet_id: planet.id, star_id: planet.star_id,
+                  system_id: planet.system_id, ...m});
+  }
+  return moons;
+}
+
 function generateUniverse(cfg) {
-  const rng=makePRNG(cfg.seed);
-  const lattice=generateLattice(cfg);
-  const systems=generateSystems(lattice, rng, cfg);
-  const stars=generateStars(rng, systems, cfg);
-  const planets=generateAllPlanets(stars, rng, cfg);
-  return {systems, stars, planets, moons:[], seed: cfg.seed};
+  const rng     = makePRNG(cfg.seed);
+  const lattice = generateLattice(cfg);
+  const systems = generateSystems(lattice, rng, cfg);
+  const stars   = generateStars(rng, systems, cfg);
+  const planets = generateAllPlanets(stars, rng, cfg);
+  const starsById = Object.fromEntries(stars.map(s => [s.id, s]));
+  const moons   = generateAllMoons(planets, starsById, rng);
+  return {systems, stars, planets, moons, seed: cfg.seed};
 }
 
 // VIEWER
 let _renderer=null, _animId=null, _camera=null;
-let _exitSystemFn=null; // called by global Escape handler
+let _exitSystemFn=null, _centerFn=null;
 
 function _disposeObj(obj) {
   if (obj.geometry) obj.geometry.dispose();
@@ -518,6 +587,7 @@ function initViewer(DATA) {
 
   let mode='universe', currentSys=null;
   let systemPoints=null, systemOrder=[];
+  const bodyMeshMap={};
 
   const systems=DATA.systems;
   const starsBySys={}, planetsBySys={}, moonsByPlanet={}, sysById={}, planetCount={};
@@ -657,6 +727,7 @@ function initViewer(DATA) {
   function enterSystem(sysId){
     const sys=sysById[sysId]; if(!sys)return;
     mode='system'; currentSys=sysId; clearDetail();
+    Object.keys(bodyMeshMap).forEach(k=>delete bodyMeshMap[k]);
     const center=new THREE.Vector3(sys.x,sys.y,sys.z);
     detailGroup=new THREE.Group(); scene.add(detailGroup);
 
@@ -665,7 +736,11 @@ function initViewer(DATA) {
     let maxStarR=0.3;
     stars.forEach(st=>{ maxStarR=Math.max(maxStarR,starVR(st.radius)); });
     const starGlow=1.25*maxStarR;
-    const sep=stars.length>1 ? (2*starGlow+GAP) : 0;
+    // chord between adjacent stars in ring: 2*R*sin(π/n) >= starGap
+    const starGap = 2*starGlow + GAP;
+    const sep = stars.length > 1
+      ? starGap / (2 * Math.sin(Math.PI / stars.length))
+      : 0;
 
     stars.forEach((st,i)=>{
       const ang=stars.length>1 ? i/stars.length*Math.PI*2 : 0;
@@ -674,41 +749,71 @@ function initViewer(DATA) {
       const r=starVR(st.radius); starRadius[st.id]=r;
       const col=SPEC_COL[st.spectral_type]||'#ffffff';
       const mesh=new THREE.Mesh(new THREE.SphereGeometry(r,20,20),new THREE.MeshBasicMaterial({color:col}));
-      mesh.position.copy(pos); mesh.userData={type:'star',data:st,radius:r};
+      mesh.position.copy(pos); mesh.userData={type:'star',data:st,radius:r,bodyKey:'star-'+st.id};
+      bodyMeshMap['star-'+st.id]=mesh;
       detailGroup.add(mesh);
       const gl=glowSprite(new THREE.Color(col),r*2.5); gl.position.copy(pos); detailGroup.add(gl);
     });
 
     // non-overlapping orbit layout — visual radii, not physical distances
     const pl=(planetsBySys[sysId]||[]).slice().sort((a,b)=>a.orbital_distance-b.orbital_distance);
+    const moonPad={};
+    pl.forEach(p=>{
+      moonPad[p.id]=(moonsByPlanet[p.id]||[]).reduce((m,mn)=>Math.max(m,mn.orbital_distance*MOON),0);
+    });
     const orbits=[]; let prevA=null, prevR=0;
     pl.forEach(p=>{
-      const rp=planetVR(p.radius), sr=starRadius[p.star_id]||maxStarR;
-      let a=Math.max(p.orbital_distance*AU, 1.25*sr+rp+GAP);
-      if(stars.length>1) a=Math.max(a, sep+sr+rp+GAP);
-      if(prevA!==null) a=Math.max(a, prevA+prevR+rp+GAP);
-      orbits.push(a); prevA=a; prevR=rp;
+      const rp=planetVR(p.radius), sr=starRadius[p.star_id]||maxStarR, mp=moonPad[p.id]||0;
+      let a=Math.max(p.orbital_distance*AU, 1.25*sr+rp+mp+GAP);
+      if(stars.length>1) a=Math.max(a, sep+sr+rp+mp+GAP);
+      if(prevA!==null) a=Math.max(a, prevA+prevR+rp+mp+GAP);
+      orbits.push(a); prevA=a; prevR=rp+mp;
     });
 
     let maxOrbit=1;
+    // fibonacci sphere — cos(phase) evenly spaced, incl stepped by golden angle
+    // gives near-uniform angular coverage for any n without trying to pack a sphere
+    const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+    const n = pl.length;
+
+    // seed the overlap list with the star spheres so planets won't clip them either
+    const placed = stars.map(st => ({pos: starPos[st.id].clone(), r: starRadius[st.id]}));
+
     pl.forEach((p,i)=>{
-      const a=orbits[i], c=starPos[p.star_id]||center;
-      const rand=rngFor((p.id*2654435761)>>>0);
-      const phase=rand()*Math.PI*2, incl=rand()*Math.PI;
-      maxOrbit=Math.max(maxOrbit,a);
-      const pos=c.clone().add(orbitPoint(a,phase,incl));
+      const a=orbits[i];
+      const starC = starPos[p.star_id] || center;
+      const rand=rngFor((p.id*2654435761)>>>0); // keep for moons
       const r=planetVR(p.radius);
+
+      // fibonacci base position
+      const cosPhase = n > 1 ? 1 - 2*(i+0.5)/n : 0;
+      const basePhase = Math.acos(Math.max(-1, Math.min(1, cosPhase)));
+      let incl = i * goldenAngle;
+
+      // nudge incl by goldenAngle steps until no overlap — usually resolves in 1-2 tries
+      const rEff = r + (moonPad[p.id]||0);
+      let pos = center.clone().add(orbitPoint(a, basePhase, incl));
+      for (let k = 1; k < 32; k++) {
+        if (placed.every(o => pos.distanceTo(o.pos) >= o.r + rEff + GAP)) break;
+        incl = i * goldenAngle + k * goldenAngle;
+        pos = center.clone().add(orbitPoint(a, basePhase, incl));
+      }
+      placed.push({pos, r: rEff});
+
+      maxOrbit=Math.max(maxOrbit,a);
       const mesh=new THREE.Mesh(new THREE.SphereGeometry(r,16,16),new THREE.MeshBasicMaterial({color:PL_COL[p.planet_type]||0xffffff}));
-      mesh.position.copy(pos); mesh.userData={type:'planet',data:p,radius:r};
+      mesh.position.copy(pos); mesh.userData={type:'planet',data:p,radius:r,bodyKey:'planet-'+p.id};
+      bodyMeshMap['planet-'+p.id]=mesh;
       detailGroup.add(mesh);
-      detailGroup.add(orbitRing(c,a,incl,80));
-      detailGroup.add(edge(c,pos,0x335588));
+      detailGroup.add(orbitRing(center,a,incl,80));
+      detailGroup.add(edge(starC,pos,0x335588));
       (moonsByPlanet[p.id]||[]).forEach(mn=>{
         const mr=Math.max(0.001,mn.orbital_distance)*MOON;
         const ph2=rand()*Math.PI*2, ic2=rand()*Math.PI;
         const mp=pos.clone().add(orbitPoint(mr,ph2,ic2));
         const mmesh=new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.06,planetVR(mn.radius)*0.6),10,10),new THREE.MeshBasicMaterial({color:0xcccccc}));
-        mmesh.position.copy(mp); mmesh.userData={type:'moon',data:mn,radius:0.1};
+        mmesh.position.copy(mp); mmesh.userData={type:'moon',data:mn,radius:0.1,bodyKey:'moon-'+mn.id};
+        bodyMeshMap['moon-'+mn.id]=mmesh;
         detailGroup.add(mmesh);
         detailGroup.add(orbitRing(pos,mr,ic2,40));
         detailGroup.add(edge(pos,mp,0x555555));
@@ -716,7 +821,9 @@ function initViewer(DATA) {
     });
 
     const dist=Math.max(60,(maxOrbit+1.25*maxStarR)*1.5);
-    startFlight(center.clone().add(new THREE.Vector3(0,dist*0.3,dist)),center);
+    const sysCamPos = center.clone().add(new THREE.Vector3(0,dist*0.3,dist));
+    _centerFn = () => startFlight(sysCamPos.clone(), center.clone());
+    startFlight(sysCamPos, center);
     if(systemPoints){
       const K=120;
       systemPoints.scale.setScalar(K);
@@ -735,11 +842,13 @@ function initViewer(DATA) {
       systemPoints.material.uniforms.uOpacity.value=1;
     }
     startFlight(new THREE.Vector3(uHalf,uHalf*0.6,uHalf*3),new THREE.Vector3(uHalf,uHalf,uHalf));
+    _centerFn = () => startFlight(new THREE.Vector3(uHalf,uHalf*0.6,uHalf*3), new THREE.Vector3(uHalf,uHalf,uHalf));
     document.getElementById('info').innerHTML='Click a system to explore.';
     document.getElementById('backBtn').style.display='none';
     document.getElementById('crumb').textContent='Universe';
   }
   _exitSystemFn=exitSystem;
+  _centerFn = () => startFlight(new THREE.Vector3(uHalf,uHalf*0.6,uHalf*3), new THREE.Vector3(uHalf,uHalf,uHalf));
 
   const ray=new THREE.Raycaster();
   const mouse=new THREE.Vector2();
@@ -768,7 +877,7 @@ function initViewer(DATA) {
       mouse.x=(e.clientX/innerWidth)*2-1; mouse.y=-(e.clientY/innerHeight)*2+1;
       ray.setFromCamera(mouse,camera);
       const hits=ray.intersectObjects(detailGroup.children,false).filter(h=>h.object.userData&&h.object.userData.type);
-      if(hits.length){const o=hits[0].object; focusBody(o); showBodyInfo(o.userData.type,o.userData.data);}
+      if(hits.length){const o=hits[0].object; selectBodyByKey(o.userData.bodyKey);}
     }
   });
 
@@ -790,14 +899,39 @@ function initViewer(DATA) {
 
   // info panels
   function row(k,v){return'<tr><td class="k">'+k+'</td><td>'+v+'</td></tr>';}
+
   function showSystemInfo(s){
-    const ns=(starsBySys[s.id]||[]).length, np=planetCount[s.id]||0;
-    document.getElementById('info').innerHTML='<h3>System #'+s.id+'</h3><table>'+
+    const stars=(starsBySys[s.id]||[]).slice().sort((a,b)=>a.mass-b.mass);
+    const planets=(planetsBySys[s.id]||[]).slice().sort((a,b)=>a.orbital_distance-b.orbital_distance);
+    let h='<h3>System #'+s.id+'</h3><table>'+
       row('metallicity',s.metallicity.toFixed(3))+row('density',s.density.toFixed(3))+
       row('H',s.H.toFixed(3))+row('He',s.He.toFixed(3))+row('C',s.C.toFixed(3))+row('O',s.O.toFixed(3))+
-      row('stars',ns)+row('planets',np)+
-      '</table><div style="margin-top:6px;color:#7f9bc4">Click a star or planet.</div>';
+      row('stars',stars.length)+row('planets',planets.length)+
+      '</table><hr>';
+    stars.forEach(st=>{
+      const col=SPEC_COL[st.spectral_type]||'#ffffff';
+      h+=`<div class="body-item" data-key="star-${st.id}"><span class="sw" style="background:${col}"></span><span>${st.spectral_type} star — ${st.mass.toFixed(2)} M&#9737;</span></div>`;
+      planets.filter(p=>p.star_id===st.id).forEach(p=>{
+        const col=PL_COL[p.planet_type]||'#ffffff';
+        h+=`<div class="body-item" data-key="planet-${p.id}" style="padding-left:14px"><span class="sw" style="background:${col}"></span><span>Planet ${p.orbital_order} — ${p.planet_type} — ${p.orbital_distance.toFixed(2)} AU</span></div>`;
+        (moonsByPlanet[p.id]||[]).forEach(mn=>{
+          h+=`<div class="body-item" data-key="moon-${mn.id}" style="padding-left:28px"><span class="sw" style="background:#aaaaaa"></span><span>${mn.moon_type} moon — ${mn.orbital_distance.toFixed(4)} AU</span></div>`;
+        });
+      });
+    });
+    h+='<hr><div id="bodyDetail" style="color:#7f9bc4">click a body above</div>';
+    document.getElementById('info').innerHTML=h;
+    document.querySelectorAll('#info .body-item').forEach(el=>{
+      el.onclick=()=>selectBodyByKey(el.dataset.key);
+    });
   }
+
+  function selectBodyByKey(key){
+    document.querySelectorAll('#info .body-item').forEach(el=>el.classList.toggle('sel',el.dataset.key===key));
+    const mesh=bodyMeshMap[key];
+    if(mesh){focusBody(mesh); showBodyInfo(mesh.userData.type,mesh.userData.data);}
+  }
+
   function showBodyInfo(type,d){
     let h='<h3>'+(type==='star'?'Star #'+d.id:type==='planet'?'Planet (order '+d.orbital_order+')':'Moon #'+d.id)+'</h3><table>';
     if(type==='star')
@@ -814,7 +948,10 @@ function initViewer(DATA) {
       h+=row('planet',d.planet_id)+row('order',d.orbital_order)+
          row('mass',d.mass.toFixed(3))+row('radius',d.radius.toFixed(3))+
          row('orbit',d.orbital_distance.toFixed(4)+' AU');
-    document.getElementById('info').innerHTML=h+'</table>';
+    h+='</table>';
+    const detail=document.getElementById('bodyDetail');
+    if(detail) detail.innerHTML=h;
+    else document.getElementById('info').innerHTML=h;
   }
 
   // search/filter
@@ -867,21 +1004,12 @@ function initViewer(DATA) {
       camera.position.lerp(desiredCam,0.1);
       camera.lookAt(controls.target);
       if(camera.position.distanceTo(desiredCam)<1.5&&controls.target.distanceTo(desiredTarget)<1.5){
-        flying=false; controls.enabled=true;
+        flying=false;
+        controls.target.copy(desiredTarget);
+        camera.position.copy(desiredCam);
+        controls.enabled=true;
       }
     } else {
-      const fwd=new THREE.Vector3(); camera.getWorldDirection(fwd);
-      const right=new THREE.Vector3().crossVectors(fwd,new THREE.Vector3(0,1,0)).normalize();
-      const move=new THREE.Vector3();
-      if(_keys.KeyW)move.add(fwd); if(_keys.KeyS)move.sub(fwd);
-      if(_keys.KeyD)move.add(right); if(_keys.KeyA)move.sub(right);
-      if(_keys.Space)move.y+=1;
-      if(_keys.ControlLeft||_keys.ControlRight)move.y-=1;
-      if(move.lengthSq()>0){
-        const sp=(_keys.ShiftLeft||_keys.ShiftRight?700:150)*dt;
-        camera.position.addScaledVector(move.normalize(),sp);
-        controls.target.addScaledVector(move,sp); // move already normalized
-      }
       controls.update();
     }
     renderer.render(scene,camera);
@@ -898,9 +1026,9 @@ const _keys={};
   function typing(){return document.activeElement&&/INPUT|TEXTAREA/.test(document.activeElement.tagName);}
   window.addEventListener('keydown',e=>{
     if(typing())return;
+    if(e.code==='Space'){ e.preventDefault(); if(_centerFn)_centerFn(); return; }
+    if(e.key==='Escape'&&_exitSystemFn){ _exitSystemFn(); return; }
     _keys[e.code]=true;
-    if(e.code==='Space')e.preventDefault();
-    if(e.key==='Escape'&&_exitSystemFn)_exitSystemFn();
   });
   window.addEventListener('keyup',e=>{_keys[e.code]=false;});
   window.addEventListener('resize',()=>{
