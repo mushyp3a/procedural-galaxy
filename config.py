@@ -19,7 +19,7 @@ class Config:
     element_noise_scale: float = 0.005
     element_octaves: int = 1
 
-    lattice_resolution: int = 50
+    lattice_resolution: int = 1000
     lattice_steps: np.ndarray = field(init=False)
 
     def __post_init__(self):
