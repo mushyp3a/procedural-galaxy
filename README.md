@@ -47,6 +47,8 @@ The scripts load in this order in `index.html`, so `generator.js` must come befo
 
 ## Images
 
+![alt text](/images/galaxy.png?)
+
 ![Solar System](/images/solar-system.png?)
 
 ![Planets](/images/planets.png?)
