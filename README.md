@@ -1,3 +1,5 @@
+![alt text](/images/galaxy.png)
+
 # Procedural Galaxy
 
 A galaxy generator with an interactive 3D viewer. It runs entirely in the browser, so no Python or server setup is needed.
@@ -42,3 +44,9 @@ The scripts load in this order in `index.html`, so `generator.js` must come befo
 - `Esc` or the Back button returns to the galaxy view.
 - `Space` centres the camera. Left-drag orbits, right-drag pans and the wheel zooms.
 - The Generator Config in the search panel lets you change the seed, size, noise and orbit limits, then click Regenerate.
+
+## Images
+
+![Solar System](/images/solar-system.png)
+
+![Planets](/images/planets.png)
