@@ -7,9 +7,7 @@ from config import Config
 
 conf = Config()
 
-# =========================
-# LATTICE
-# =========================
+# lattice
 
 def perlin(x, y, z, seed):
     return (
@@ -40,9 +38,7 @@ def generate_lattice():
         ]
     )
 
-    # =========================
-    # GENERATE LATTICE
-    # =========================
+    # generate lattice
 
     for z in range(len(conf.lattice_steps)):
         for y in range(len(conf.lattice_steps)):

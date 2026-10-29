@@ -6,9 +6,7 @@ from config import Config
 
 conf = Config()
 
-# =========================
-# GENERATE SYSTEMS
-# =========================
+# generate systems
 
 def plot_systems(systems):
     system_coordinates = np.array([
@@ -114,9 +112,7 @@ def plot_metallicity(lattice):
     metallicity_fig.show()
 
 
-# =========================
-# DETAILLED SYSTEM VIEW
-# =========================
+# detailled system view
 
 SPECTRAL_COLORS = {
     "O": "#9bb0ff",
@@ -136,8 +132,8 @@ PLANET_COLORS = {
 
 
 def _orbit_points(center, a, incl, n=64):
-    """Return (x, y, z) arrays tracing a circular orbit of radius a,
-    inclined by `incl` about the x-axis, centred on `center`."""
+    # points for a circular orbit of radius a, tilted by incl
+
     theta = np.linspace(0, 2 * np.pi, n)
     x = a * np.cos(theta)
     y = a * np.sin(theta) * np.cos(incl)
@@ -153,7 +149,7 @@ def _body_position(center, a, incl, phase):
 
 
 def plot_system(conn, system_id, output_html="system_detail.html", show=True):
-    # Read the system and its bodies from the database.
+    # get the system and its bodies from the database
     system = conn.execute(
         """
         SELECT id, x, y, z, metallicity, density
@@ -194,12 +190,12 @@ def plot_system(conn, system_id, output_html="system_detail.html", show=True):
         (sys_id,),
     ).fetchall()
 
-    # Deterministic geometry so a given system always renders the same.
+    # seeded so a system always looks the same
     rng = np.random.default_rng(sys_id)
 
     fig = go.Figure()
 
-    # --- Stars (separated slightly if multiple) ---
+    # stars, spread out a bit if there is more than one
     star_positions = {}
     n_stars = len(stars)
     for i, st in enumerate(stars):
@@ -214,7 +210,7 @@ def plot_system(conn, system_id, output_html="system_detail.html", show=True):
             name=f"Star {st[1]} ({st[6]})",
         ))
 
-    # --- Planets on orbits ---
+    # planets on their orbits
     planet_positions = {}
     for pl in planets:
         pid, star_id, order, a, pmass, prad, ptemp, ptype = pl
@@ -238,7 +234,7 @@ def plot_system(conn, system_id, output_html="system_detail.html", show=True):
             name=f"P{order} {ptype} ({a:.2f} AU)",
         ))
 
-    # --- Moons on planet orbits ---
+    # moons on their planets orbits
     for mn in moons:
         mid, planet_id, order, ma, mmass, mrad = mn
         if planet_id not in planet_positions:

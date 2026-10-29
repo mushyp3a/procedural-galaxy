@@ -2,9 +2,7 @@
 
 import numpy as np
 
-# =========================
-# REFERENCE DATA
-# =========================
+# reference data
 
 REFERENCE_MASSES = np.array([
     0.40,
@@ -26,9 +24,7 @@ REFERENCE_RADII = np.array([
     18.0,
 ])
 
-# =========================
-# KROUPA INITIAL MASS FUNCTION
-# =========================
+# kroupa initial mass function
 def _power_law_integral(minimum, maximum, alpha):
     if alpha == 1:
         return np.log(maximum / minimum)
@@ -62,9 +58,7 @@ def generate_mass(rng):
         return _sample_power_law(rng, low_min, low_max, low_alpha)
     return _sample_power_law(rng, high_min, high_max, high_alpha)
 
-# =========================
-# MASS -> LUMINOSITY
-# =========================
+# mass to luminosity
 def generate_luminosity(mass):
     log_mass = np.log10(mass)
     if mass <= 0.45:
@@ -81,9 +75,7 @@ def generate_luminosity(mass):
         log_luminosity = 2.865 * log_mass + 1.105
     return 10 ** log_luminosity
 
-# =========================
-# MASS -> RADIUS
-# =========================
+# mass to radius
 def generate_radius(mass, luminosity):
     if mass <= 1.5:
         return (
@@ -96,9 +88,7 @@ def generate_radius(mass, luminosity):
         luminosity / (temperature / 5772.0) ** 4
     )
 
-# =========================
-# MASS -> TEMPERATURE
-# =========================
+# mass to temperature
 def generate_temperature(mass, luminosity=None, radius=None):
     if mass > 1.5:
         log_mass = np.log10(mass)
@@ -116,9 +106,7 @@ def generate_temperature(mass, luminosity=None, radius=None):
         luminosity / radius ** 2
     ) ** 0.25
 
-# =========================
-# TEMPERATURE -> SPECTRAL CLASS
-# =========================
+# temperature to spectral class
 def generate_spectral_type(temperature):
     if temperature >= 30000:
         return "O"
@@ -134,9 +122,7 @@ def generate_spectral_type(temperature):
         return "K"
     return "M"
 
-# =========================
-# STAR
-# =========================
+# star
 def generate_star(rng, system, system_index):
     mass = generate_mass(rng)
     luminosity = generate_luminosity(mass)

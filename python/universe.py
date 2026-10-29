@@ -34,7 +34,7 @@ system_ids = db.save_systems(systems)
 star_ids = db.save_stars(stars, system_ids)
 db.save_planets(planets, system_ids, star_ids)
 
-# Detailed view of the system with the most planets (writes an HTML file).
+# detailed view of the system with the most planets, writes an html file
 richest = db.connection.execute(
     "SELECT system_id FROM planets "
     "GROUP BY system_id ORDER BY COUNT(*) DESC LIMIT 1"

@@ -3,9 +3,7 @@
 import math
 import numpy as np
 
-# =========================
-# PLANET GENERATION
-# =========================
+# planet generation
 
 MIN_ORBITAL_DISTANCE = 0.05
 MAX_ORBITAL_DISTANCE = 30.0
@@ -13,15 +11,11 @@ MAX_ORBITAL_DISTANCE = 30.0
 MIN_PLANET_MASS = 0.1
 MAX_PLANET_MASS = 4000.0
 
-# =========================
-# PLANET COUNT
-# =========================
+# planet count
 
 def generate_planet_count(star, rng):
-    # Generate the number of planets around a star.
-    # This is a probabilistic procedural model informed by observed
-    # differences in planet occurrence with stellar properties.
-    # It is not an exact planet-formation equation.
+    # how many planets a star gets, bigger stars get fewer
+    # not real physics just based on what we see
 
     mass = star["mass"]
     metallicity = star["metallicity"]
@@ -42,28 +36,19 @@ def generate_planet_count(star, rng):
 
     return max(1, min(int(count), 10))
 
-# =========================
-# SNOW LINE
-# =========================
+# snow line
 
 def generate_snow_line(star):
-    # estimate the snow-line distance in AU.
-    # The location is scaled with stellar luminosity because the
-    # stellar radiation field determines the distance at which
-    # volatile compounds can condense.
+    # snow line distance in AU, further out for brighter stars
 
     luminosity = star["luminosity"]
 
     return 2.7 * math.sqrt(luminosity)
 
-# =========================
-# ORBITAL DISTANCES
-# =========================
+# orbital distances
 
 def generate_orbital_distances(planet_count, star, rng):
-    # Generate ordered planetary orbital distances in AU.
-    # Orbits are generated geometrically rather than independently,
-    # producing increasing orbital spacing.
+    # distances in AU, each orbit is further out than the last
 
     if planet_count == 1:
         return np.array([
@@ -92,18 +77,12 @@ def generate_orbital_distances(planet_count, star, rng):
 
     return np.array(distances)
 
-# =========================
-# PLANET MASS
-# =========================
+# planet mass
 
 def generate_planet_mass(star, orbital_distance, rng):
-    # Generate planet mass in Earth masses.
-    # Inner regions favour smaller rocky planets while the outer
-    # region allows substantially larger planets.
-    # Metallicity acts as a procedural modifier for the amount of
-    # heavy-element material available.
-    # This is a procedural formation model, not a physical
-    # simulation of planetary accretion.
+    # mass in earth masses
+    # inner planets are small and rocky, outer ones can get much bigger
+    # higher metallicity makes them a bit heavier
 
     metallicity = star["metallicity"]
     snow_line = generate_snow_line(star)
@@ -132,13 +111,10 @@ def generate_planet_mass(star, orbital_distance, rng):
         )
     )
 
-# =========================
-# PLANET TYPE
-# =========================
+# planet type
 
 def generate_planet_type(mass, orbital_distance, star):
-    # Classify a planet using mass and its position relative
-    # to the stellar snow line.
+    # works out the type from the mass and if its past the snow line
 
     snow_line = generate_snow_line(star)
 
@@ -150,14 +126,10 @@ def generate_planet_type(mass, orbital_distance, star):
 
     return "gas_giant"
 
-# =========================
-# MASS -> RADIUS
-# =========================
+# mass to radius
 
 def generate_radius(mass):
-    # Estimate radius in Earth radii using the Chen & Kipping
-    # probabilistic mass-radius relation.
-    # The relation is represented as piecewise power laws.
+    # radius in earth radii, uses the chen and kipping mass radius relation
 
     if mass < 2.04:
         coefficient = 1.008
@@ -175,14 +147,10 @@ def generate_radius(mass):
         coefficient * mass ** exponent
     )
 
-# =========================
-# ALBEDO
-# =========================
+# albedo
 
 def generate_albedo(planet_type, rng):
-    # Generate a bounded procedural Bond-albedo estimate.
-    # Atmospheric and surface composition are not sufficiently
-    # modelled to calculate albedo directly.
+    # random albedo kept between limits, we dont model atmospheres so cant work it out
 
     if planet_type == "terrestrial":
         minimum = 0.1
@@ -203,20 +171,15 @@ def generate_albedo(planet_type, rng):
         )
     )
 
-# =========================
-# EQUILIBRIUM TEMPERATURE
-# =========================
+# equilibrium temperature
 
 def generate_temperature(
     luminosity,
     orbital_distance,
     albedo,
 ):
-    # Calculate planetary equilibrium temperature in Kelvin.
-    # Assumes:
-    # - radiative equilibrium
-    # - uniform heat redistribution
-    # - no greenhouse effect
+    # temperature in kelvin
+    # assumes heat is spread evenly and no greenhouse effect
 
     solar_equilibrium_temperature = 278.5
 
@@ -227,9 +190,7 @@ def generate_temperature(
         * orbital_distance ** -0.5
     )
 
-# =========================
-# SINGLE PLANET
-# =========================
+# single planet
 
 def generate_planet(
     star,
@@ -237,7 +198,7 @@ def generate_planet(
     orbital_distance,
     rng,
 ):
-    # Generate one planet around a star.
+    # makes one planet
 
     mass = generate_planet_mass(
         star,
@@ -278,12 +239,10 @@ def generate_planet(
         "temperature": temperature,
     }
 
-# =========================
-# PLANETS AROUND ONE STAR
-# =========================
+# planets around one star
 
 def generate_planets(star, rng):
-    # Generate all planets around one star.
+    # makes all the planets for one star
 
     planet_count = generate_planet_count(
         star,
@@ -313,15 +272,10 @@ def generate_planets(star, rng):
 
     return planets
 
-# =========================
-# ALL STARS
-# =========================
+# all stars
 
 def generate_all_planets(stars, rng):
-    # Generate planets for every generated star.
-
-    # Returns:
-    #     list[dict]
+    # makes planets for every star, gives back a list of dicts
 
     planets = []
 

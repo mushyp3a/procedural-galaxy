@@ -1,15 +1,8 @@
 #!/usr/bin/env python3
 
-"""Export the generated universe into a self-contained, interactive 3D viewer.
+# turns universe.db into explore.html, a 3d viewer you can open in the browser
+# run universe.py first to make the database, then this
 
-Reads the existing `universe.db` and writes `explore.html`, which is a
-client-side three.js page (no server required). It can be opened directly
-in a browser or dropped into a Hugo `static/` directory.
-
-Usage:
-    python universe.py     # generate the database
-    python view.py         # produce explore.html
-"""
 
 import sqlite3
 import json

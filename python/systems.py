@@ -5,9 +5,7 @@ from config import Config
 
 conf = Config()
 
-# =========================
-# GENERATE SYSTEMS
-# =========================
+# generate systems
 
 def generate_systems(lattice, rng):
     systems = []
