@@ -1,4 +1,4 @@
-# universe.html — code guide
+# index.html — code guide
 
 Everything runs in a single HTML file. Open it in a browser and you get a
 self-contained procedural universe: no server, no build step, no dependencies
@@ -15,8 +15,8 @@ The file has three distinct layers:
 ## How to run it
 
 ```
-open html/universe.html        # macOS
-xdg-open html/universe.html   # Linux
+open html/index.html        # macOS
+xdg-open html/index.html   # Linux
 ```
 
 Or just drag the file into a browser. The `viewer/` folder must be next to the

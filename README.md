@@ -2,26 +2,28 @@
 
 A procedural universe generator with an interactive 3D viewer. Two modes:
 
-- **`universe.html`** — fully client-side, runs the entire generation pipeline in
+- **`html/index.html`** — fully client-side, runs the entire generation pipeline in
   JavaScript. No Python or server required. All parameters are editable in the
   browser and the universe can be regenerated instantly.
 - **Python pipeline** — generates into a SQLite database for offline analysis or
   to produce the legacy `explore.html`.
 
-## Deploying to Hugo / GitHub Pages
+## Deploying to Hugo
 
-Copy two things into your Hugo site's `static/` directory:
+The web viewer lives in `html/` and needs no build step:
 
 ```
-static/
-  universe.html
+html/
+  index.html
   viewer/
     three.min.js
     OrbitControls.js
 ```
 
-Then `universe.html` is available at `yoursite.com/universe.html`. No build step
-needed — the page generates the universe in-browser on first load.
+Serve the contents of `html/` from any static host. In the portfolio site it is
+mounted at `/procedural-galaxy/` (see the portfolio's `hugo.toml`), so
+`index.html` is the explorer page and the universe is generated in-browser on
+first load.
 
 ## Python pipeline (offline generation)
 

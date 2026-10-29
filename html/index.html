@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Procedural Universe Explorer</title>
+<title>Procedural Galaxy Explorer</title>
 <style>
 html,body{margin:0;height:100%;background:#05060a;color:#cfe3ff;
   font-family:ui-monospace,Menlo,Consolas,monospace;overflow:hidden}
@@ -57,7 +57,7 @@ label{display:inline-block;margin:1px 4px 1px 0}
 
 <div id="loading">
   <div class="spinner"></div>
-  <h2>Generating universe…</h2>
+  <h2>Generating Galaxy…</h2>
   <div id="loading-detail"></div>
 </div>
 
@@ -65,6 +65,7 @@ label{display:inline-block;margin:1px 4px 1px 0}
 <div id="tooltip"></div>
 
 <div id="search" class="panel">
+  <a href="/projects/galaxy/" style="display:block;margin-bottom:8px;color:#7f9bc4;font-size:11px;text-decoration:none;">← back to portfolio</a>
   <h3>Search / Filter</h3>
   <div class="row"><input id="sysId" type="text" placeholder="system id"/><button id="goId">Go</button></div>
   <div class="row"><span>Met min</span><input id="metMin" type="number" step="0.05" min="0" max="1" value="0"/></div>
@@ -79,8 +80,7 @@ label{display:inline-block;margin:1px 4px 1px 0}
   <div id="cfgToggle">⚙ Generator Config ▾</div>
   <div id="cfgBody">
     <div class="row"><span>Seed</span><input id="cfg-seed" type="number" value="125" class="wide"/></div>
-    <div class="row"><span>Universe size</span><input id="cfg-universeSize" type="number" value="1000" class="wide"/></div>
-    <div class="row"><span>Noise scale</span><input id="cfg-noiseScale" type="number" step="0.001" min="0.001" value="0.005" class="wide"/></div>
+    <div class="row"><span>Cluster scale</span><input id="cfg-clusterScale" type="number" step="0.5" min="0.5" value="5" class="wide"/></div>
     <div class="row"><span>Noise octaves</span><input id="cfg-octaves" type="number" min="1" max="6" value="1" class="wide"/></div>
     <div class="row"><span>Lattice res</span><input id="cfg-latticeRes" type="number" min="10" max="80" value="50" class="wide"/></div>
     <div class="row"><span>Density thresh</span><input id="cfg-densityThresh" type="number" step="0.05" min="0" max="1" value="0.5" class="wide"/></div>
@@ -89,6 +89,7 @@ label{display:inline-block;margin:1px 4px 1px 0}
     <div class="row"><span>Max stars/sys</span><input id="cfg-maxStars" type="number" min="1" max="3" value="3" class="wide"/></div>
     <div class="row"><span>Min orbit (AU)</span><input id="cfg-minOrbit" type="number" step="0.01" min="0.01" value="0.05" class="wide"/></div>
     <div class="row"><span>Max orbit (AU)</span><input id="cfg-maxOrbit" type="number" min="1" value="30" class="wide"/></div>
+    <div class="row"><span>Rotation</span><input id="cfg-rotSpeed" type="number" step="0.1" min="0" max="5" value="0.5" class="wide"/></div>
     <button id="regenBtn">↻ Regenerate</button>
     <div id="statsLine"></div>
   </div>
@@ -124,11 +125,7 @@ label{display:inline-block;margin:1px 4px 1px 0}
 <script>
 'use strict';
 
-// =========================
-// prng
-// =========================
-
-// xorshift32 — fast seeded deterministic rng
+// xorshift32 algorithm
 function makePRNG(seed) {
   let s = ((seed | 0) >>> 0) || 1;
   function next() {
@@ -137,17 +134,21 @@ function makePRNG(seed) {
   }
   return {
     next,
+      // returns seeded random num between [a,b)
     uniform(a, b) { return a + next() * (b - a); },
-    int(lo, hi)   { return lo + ((next() * (hi - lo)) | 0); }, // exclusive upper bound
-    shuffle(arr) {
+      // returns random integer between [lo,hi)
+    int(lo, hi)   { return lo + ((next() * (hi - lo)) | 0); },
+      // fisher-yates :: seeded array shuffle
+    shuffle(arr) { 
       for (let i = arr.length - 1; i > 0; i--) {
         const j = (next() * (i + 1)) | 0;
         const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
       }
     },
+      // Knuth's algorithm returns values whose average tends to lam
+      // lambda is both mean and variance so larger numbers produce a bigger standard deviation (sqrt(lam))
     poisson(lam) {
       if (lam <= 0) return 0;
-      // knuth algorithm — multiply uniforms until product falls below e^-lambda
       const L = Math.exp(-Math.min(lam, 500));
       let k = 0, p = 1;
       do { k++; p *= next(); } while (p > L && k < 200);
@@ -156,11 +157,7 @@ function makePRNG(seed) {
   };
 }
 
-// =========================
-// perlin noise
-// =========================
-
-// ken perlin's reference permutation table, doubled to avoid index wrapping
+  // Perlin's ORIGINAL (wow) permutation table
 const _PBASE = [
   151,160,137, 91, 90, 15,131, 13,201, 95, 96, 53,194,233,  7,225,
   140, 36,103, 30, 69,142,  8, 99, 37,240, 21, 10, 23,190,  6,148,
@@ -179,11 +176,14 @@ const _PBASE = [
   184, 84,204,176,115,121, 50, 45,127,  4,150,254,138,236,205, 93,
   222,114, 67, 29, 24, 72,243,141,128,195, 78, 66,215, 61,156,180
 ];
+
+  // typed array containing permutation table twice, one after each other to avoid overflow
 const _P = new Uint8Array(512);
 for (let i = 0; i < 256; i++) _P[i] = _P[i + 256] = _PBASE[i];
 
-// 6t^5 - 15t^4 + 10t^3 — zero first and second derivatives at t=0 and t=1
+  // smooths the blend factors such that 1x1x1 cube seams aren't clear sudden changes in angle
 function _fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+  // uses lerp to return value of t between a,b where t=0 is a, t=1 is b, t=0.5 is half way
 function _lp(t, a, b) { return a + t * (b - a); }
 function _grad(h, x, y, z) {
   h &= 15;
@@ -202,8 +202,6 @@ function _raw3(x, y, z) {
     _lp(v, _lp(u,_grad(_P[AA+1],xf,   yf,   zf-1),_grad(_P[BA+1],xf-1,yf,   zf-1)),
            _lp(u,_grad(_P[AB+1],xf,   yf-1, zf-1),_grad(_P[BB+1],xf-1,yf-1,zf-1))));
 }
-// base offsets into a different region of noise space for each seed
-// normalises to [0, 1], stacks octaves with persistence 0.5 and lacunarity 2
 function perlin01(x, y, z, base, octaves) {
   let val = 0, amp = 1, freq = 1, maxA = 0;
   for (let o = 0; o < octaves; o++) {
@@ -213,18 +211,11 @@ function perlin01(x, y, z, base, octaves) {
   return (val / maxA + 1) * 0.5;
 }
 
-// =========================
-// lattice
-// =========================
-
-// 3d perlin field across the universe volume — one channel per element
-// seed offsets: density=seed+6, C=+1, O=+2, He=+3, H=+4, metallicity=+5
 function generateLattice(cfg) {
-  const {seed, universeSize, elementNoiseScale, elementOctaves, latticeResolution: N} = cfg;
-  // linspace(0, universeSize*noiseScale, N) rounded to 2dp
+  const {seed, clusterScale, elementOctaves, latticeResolution: N} = cfg;
   const steps = new Float64Array(N);
   for (let i = 0; i < N; i++)
-    steps[i] = Math.round(i / (N-1) * universeSize * elementNoiseScale * 100) / 100;
+    steps[i] = Math.round(i / (N-1) * clusterScale * 100) / 100;
 
   const size = N*N*N;
   const density=new Float32Array(size), H=new Float32Array(size), He=new Float32Array(size),
@@ -244,16 +235,10 @@ function generateLattice(cfg) {
   return {density, H, He, C, O, met, N, steps};
 }
 
-// =========================
-// systems
-// =========================
-
-// filter lattice cells by density, H and He thresholds then shuffle the candidates
-// acceptance probability is density × H × He — richest cells most likely to host a system
-// jitter within the cell to break the grid pattern
 function generateSystems(lattice, rng, cfg) {
   const {density, H, He, C, O, met, N} = lattice;
-  const {universeSize, densityThreshold, HThreshold, HeThreshold} = cfg;
+  const {densityThreshold, HThreshold, HeThreshold} = cfg;
+  const universeSize = 1000;
   const cellSize = universeSize / N;
 
   const candidates = [];
@@ -282,24 +267,16 @@ function generateSystems(lattice, rng, cfg) {
   return systems;
 }
 
-// =========================
-// stars
-// =========================
-
-// integral of x^-alpha from lo to hi
 function _powerLawIntegral(lo, hi, alpha) {
   if (alpha === 1) return Math.log(hi/lo);
   const e = 1-alpha; return (Math.pow(hi,e)-Math.pow(lo,e))/e;
 }
 
-// inverse transform sampling on a power law cdf
 function _samplePL(rng, lo, hi, alpha) {
   const e = 1-alpha;
   return Math.pow(Math.pow(lo,e)+rng.next()*(Math.pow(hi,e)-Math.pow(lo,e)), 1/e);
 }
 
-// kroupa imf — two power laws joined at 0.5 solar masses
-// alpha = 1.3 for light stars, 2.3 for heavy ones
 function _starMass(rng) {
   const lW = _powerLawIntegral(0.179, 0.50, 1.3);
   const hW = Math.pow(0.5, 2.3-1.3) * _powerLawIntegral(0.50, 31.0, 2.3);
@@ -308,7 +285,6 @@ function _starMass(rng) {
     : _samplePL(rng, 0.50, 31.0, 2.3);
 }
 
-// piecewise log-linear fit to the observed mass-luminosity relation
 function _starLuminosity(m) {
   const lm = Math.log10(m);
   if (m <= 0.45) return Math.pow(10, 2.028*lm - 0.976);
@@ -319,8 +295,6 @@ function _starLuminosity(m) {
   return Math.pow(10, 2.865*lm + 1.105);
 }
 
-// for mass > 1.5: empirical log-log fit to effective temperature
-// for mass <= 1.5: stefan-boltzmann — T = 5772 × (L/R²)^0.25
 function _starTemperature(mass, luminosity, radius) {
   if (mass > 1.5) {
     const lm = Math.log10(mass);
@@ -329,8 +303,6 @@ function _starTemperature(mass, luminosity, radius) {
   return 5772 * Math.pow(luminosity / (radius*radius), 0.25);
 }
 
-// for mass <= 1.5: polynomial fit from mass alone
-// for heavy stars: stefan-boltzmann — radius from luminosity and temperature
 function _starRadius(mass, luminosity) {
   if (mass <= 1.5)
     return 0.438*mass*mass + 0.479*mass + 0.075;
@@ -338,15 +310,12 @@ function _starRadius(mass, luminosity) {
   return Math.sqrt(luminosity / Math.pow(temp/5772, 4));
 }
 
-// obafgkm temperature classification
 function _starSpectralType(t) {
   if (t >= 30000) return 'O'; if (t >= 10000) return 'B'; if (t >= 7500) return 'A';
   if (t >= 6000)  return 'F'; if (t >= 5200)  return 'G'; if (t >= 3700) return 'K';
   return 'M';
 }
 
-// order matters — for light stars radius before temperature, for heavy stars temperature before radius
-// stefan-boltzmann is order-dependent: the first quantity constrains the second
 function _generateStar(rng, system) {
   const mass = _starMass(rng);
   const luminosity = _starLuminosity(mass);
@@ -371,8 +340,7 @@ function generateStars(rng, systems, cfg) {
     for (let sn = 0; sn < n; sn++) {
       const s = _generateStar(rng, sys);
       stars.push({
-        id: stars.length+1, star_index: stars.length,
-        system_id: sys.id, system_index: si, star_number: sn,
+        id: stars.length+1, system_id: sys.id, star_number: sn,
         mass: s.mass, luminosity: s.luminosity, radius: s.radius,
         temperature: s.temperature, spectral_type: s.spectral_type,
         metallicity: s.metallicity
@@ -382,11 +350,6 @@ function generateStars(rng, systems, cfg) {
   return stars;
 }
 
-// =========================
-// planets
-// =========================
-
-// poisson draw — expected count from stellar mass, scaled by metallicity
 function _planetCount(star, rng) {
   const m = star.mass;
   let e = m < 0.6 ? 5 : m < 1.0 ? 4 : m < 1.5 ? 3.5 : 3.0;
@@ -394,10 +357,8 @@ function _planetCount(star, rng) {
   return Math.max(1, Math.min(rng.poisson(e), 10));
 }
 
-// condensation radius in AU: d = 2.7 × sqrt(L)
 function _snowLine(star) { return 2.7 * Math.sqrt(star.luminosity); }
 
-// geometric spacing — each orbit is ratio × previous, ratio drawn from [1.5, 2.5]
 function _orbitalDistances(count, star, rng, cfg) {
   const mn = cfg.minOrbitalDistance, mx = cfg.maxOrbitalDistance;
   if (count === 1) return [rng.uniform(mn, mx)];
@@ -411,8 +372,6 @@ function _orbitalDistances(count, star, rng, cfg) {
   return d;
 }
 
-// log-uniform mass draw — rocky range inner of snow line, giant range outer
-// metallicity scales the result
 function _planetMass(star, od, rng) {
   const snow = _snowLine(star);
   const mf = 0.6 + 0.8*star.metallicity;
@@ -422,7 +381,6 @@ function _planetMass(star, od, rng) {
   return Math.max(0.1, Math.min(raw * mf, 4000));
 }
 
-// type from mass and position relative to snow line
 function _planetType(mass, od, star) {
   const snow = _snowLine(star);
   if (mass < 10) return 'terrestrial';
@@ -430,22 +388,18 @@ function _planetType(mass, od, star) {
   return 'gas_giant';
 }
 
-// chen-kipping piecewise power law
-// rocky (< 2.04 earth masses): exponent 0.279, volatile-rich: 0.589, giant plateau: -0.044
 function _planetRadius(mass) {
   if (mass < 2.04)  return 1.008 * Math.pow(mass,  0.279);
   if (mass < 132)   return 1.008 * Math.pow(mass,  0.589);
   return 11 * Math.pow(mass, -0.044);
 }
 
-// bounded albedo ranges by planet type
 function _albedo(type, rng) {
   if (type === 'terrestrial') return rng.uniform(0.1, 0.6);
   if (type === 'ice_giant')   return rng.uniform(0.2, 0.7);
   return rng.uniform(0.2, 0.6);
 }
 
-// radiative equilibrium: T = 278.5 × L^0.25 × (1-A)^0.25 / sqrt(d)
 function _planetTemp(lum, od, albedo) {
   return 278.5 * Math.pow(lum, 0.25) * Math.pow(1-albedo, 0.25) / Math.sqrt(od);
 }
@@ -479,10 +433,6 @@ function generateAllPlanets(stars, rng, cfg) {
   return planets;
 }
 
-// =========================
-// moons
-// =========================
-
 function _moonCount(planet, rng) {
   const lam = planet.planet_type === 'gas_giant' ? 5
             : planet.planet_type === 'ice_giant'  ? 2 : 0.15;
@@ -505,7 +455,6 @@ function _moonOrbitalDistances(planet, star, count, rng) {
   if (count === 0) return [];
   const roche = 2.5 * planet.radius * 4.26e-5;
   // mirror viewer planetVR formula (0.22√r, clamped [0.12,0.60]) + MOON=150 scale
-  // so innermost moon's orbit clears the planet mesh by 0.5 visual units
   const pvr   = Math.max(0.12, Math.min(0.60, 0.22 * Math.sqrt(Math.max(0.01, planet.radius))));
   const minD  = Math.max(roche, (pvr + 0.5) / 150);
   const hill  = 0.5 * planet.orbital_distance
@@ -558,6 +507,7 @@ function generateUniverse(cfg) {
 // VIEWER
 let _renderer=null, _animId=null, _camera=null;
 let _exitSystemFn=null, _centerFn=null;
+let rotSpeed=0.5;
 
 function _disposeObj(obj) {
   if (obj.geometry) obj.geometry.dispose();
@@ -588,6 +538,7 @@ function initViewer(DATA) {
   let mode='universe', currentSys=null;
   let systemPoints=null, systemOrder=[];
   const bodyMeshMap={};
+  const _bodyTime={value:0.0};
 
   const systems=DATA.systems;
   const starsBySys={}, planetsBySys={}, moonsByPlanet={}, sysById={}, planetCount={};
@@ -654,8 +605,8 @@ function initViewer(DATA) {
       const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(pos,3));
       scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:col,size:sz,sizeAttenuation:false,transparent:true,opacity:op})));
     };
-    mkLayer(3500, 0.75, 1.0, 0x8899bb, 1.0, 0.55); // faint distant stars
-    mkLayer( 700, 0.60, 0.8, 0xddeeff, 1.8, 0.85); // brighter foreground stars
+    mkLayer(3500, 0.75, 1.0, 0x8899bb, 1.0, 0.55);
+    mkLayer( 700, 0.60, 0.8, 0xddeeff, 1.8, 0.85);
   })();
 
   function discTexture(){
@@ -671,7 +622,6 @@ function initViewer(DATA) {
   const SPEC_COL={O:'#9bb0ff',B:'#aabfff',A:'#cad7ff',F:'#f8f7ff',G:'#fff4e8',K:'#ffd2a1',M:'#ffcc6f'};
   const PL_COL={terrestrial:0x4caf50,ice_giant:0x64b5f6,gas_giant:0xff7043};
 
-  // system view
   function buildSystems(list){
     systemOrder=list.map(s=>s.id);
     const pos=new Float32Array(list.length*3), col=new Float32Array(list.length*3);
@@ -694,8 +644,13 @@ function initViewer(DATA) {
       ].join('\n'),
       fragmentShader:[
         'varying vec3 vColor;','uniform float uOpacity;',
-        'void main(){','  vec2 c=gl_PointCoord-0.5;','  if(dot(c,c)>0.25)discard;',
-        '  gl_FragColor=vec4(vColor,uOpacity);','}'
+        'void main(){',
+        '  vec2 c=gl_PointCoord-0.5;',
+        '  float d=dot(c,c)*4.0;',
+        '  if(d>1.0)discard;',
+        '  float a=pow(1.0-d,1.5)*uOpacity;',
+        '  vec3 col=vColor+vec3(0.25)*(1.0-d)*(1.0-d);',
+        '  gl_FragColor=vec4(col,a);','}'
       ].join('\n'),
       transparent:true,depthWrite:false
     });
@@ -720,8 +675,201 @@ function initViewer(DATA) {
   }
   function edge(a,b,color){return new THREE.Line(new THREE.BufferGeometry().setFromPoints([a,b]),new THREE.LineBasicMaterial({color,transparent:true,opacity:0.35}));}
   function glowSprite(color,scale){
-    const m=new THREE.SpriteMaterial({map:disc,color,transparent:true,opacity:0.18,depthWrite:false,blending:THREE.AdditiveBlending});
+    const m=new THREE.SpriteMaterial({map:disc,color,transparent:true,opacity:0.26,depthWrite:false,blending:THREE.AdditiveBlending});
     const sp=new THREE.Sprite(m); sp.scale.set(scale,scale,scale); return sp;
+  }
+
+  const _VERT=`
+    varying vec3 vW,vN,vL;
+    void main(){
+      vec4 w=modelMatrix*vec4(position,1.0);
+      vW=w.xyz; vN=normalize(mat3(modelMatrix)*normal); vL=normalize(position);
+      gl_Position=projectionMatrix*viewMatrix*w;
+    }`;
+  const _NOISE=`
+    float _h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+    float _n(vec2 p){
+      vec2 i=floor(p),f=fract(p); f=f*f*(3.0-2.0*f);
+      return mix(mix(_h(i),_h(i+vec2(1,0)),f.x),
+                 mix(_h(i+vec2(0,1)),_h(i+vec2(1,1)),f.x),f.y);}
+    float fbm(vec2 p,int o){float v=0.,a=.5;
+      for(int i=0;i<8;i++){if(i>=o)break;v+=a*_n(p);p*=2.;a*=.5;}return v;}
+    float _n3(vec3 p){
+      vec3 i=floor(p),f=fract(p); f=f*f*(3.0-2.0*f);
+      float n=i.x+i.y*57.+i.z*113.;
+      return mix(
+        mix(mix(_h(vec2(n,0.)),_h(vec2(n+1.,0.)),f.x),
+            mix(_h(vec2(n+57.,0.)),_h(vec2(n+58.,0.)),f.x),f.y),
+        mix(mix(_h(vec2(n+113.,0.)),_h(vec2(n+114.,0.)),f.x),
+            mix(_h(vec2(n+170.,0.)),_h(vec2(n+171.,0.)),f.x),f.y),f.z);}
+    float fbm3(vec3 p,int o){float v=0.,a=.5;
+      for(int i=0;i<8;i++){if(i>=o)break;v+=a*_n3(p);p*=2.;a*=.5;}return v;}`;
+
+  function starMat(hexCol){
+    const c=new THREE.Color(hexCol);
+    return new THREE.ShaderMaterial({
+      uniforms:{uColor:{value:new THREE.Vector3(c.r,c.g,c.b)},
+                uSeed:{value:Math.random()},uTime:_bodyTime},
+      vertexShader:_VERT,
+      fragmentShader:`
+        ${_NOISE}
+        varying vec3 vL;
+        uniform vec3 uColor;
+        uniform float uSeed,uTime;
+        void main(){
+          float ang=uTime*1.571+uSeed*6.283;
+          float ca=cos(ang),sa=sin(ang);
+          vec3 sp=vec3(vL.x*ca-vL.z*sa,vL.y,vL.x*sa+vL.z*ca)+uSeed*0.17;
+          float surf=fbm3(sp*7.,4);
+          float fine=fbm3(sp*18.+1.1,3);
+          vec3 col=uColor*(0.80+0.20*surf)*(0.90+0.10*fine);
+          gl_FragColor=vec4(col,1.0);
+        }`
+    });
+  }
+
+  function planetMat(type,hexCol,lightPos,seed){
+    const c=new THREE.Color(hexCol);
+    const lp=lightPos instanceof THREE.Vector3?lightPos:new THREE.Vector3();
+    const s=(seed%99991)/99991.0;
+    const frag={
+      terrestrial:`
+        ${_NOISE}
+        varying vec3 vW,vN,vL;
+        uniform vec3 uColor,uLight; uniform float uSeed,uTime;
+        void main(){
+          vec3 L=normalize(uLight-vW);
+          float diff=max(0.,dot(vN,L));
+          float light=0.45+0.55*diff;
+          float ang=uTime*0.942+uSeed*6.283;
+          float ca=cos(ang),sa=sin(ang);
+          vec3 sp=vec3(vL.x*ca-vL.z*sa,vL.y,vL.x*sa+vL.z*ca)+uSeed*0.17;
+          float land=fbm3(sp*3.2,4)*1.7-(0.60+uSeed*0.50);
+          float detail=fbm3(sp*8.5+1.3,3);
+          vec3 ocean=mix(vec3(0.04,0.14,0.56),vec3(0.10,0.38,0.54),uSeed*0.6);
+          vec3 sand=mix(vec3(0.30,0.21,0.09),vec3(0.52,0.38,0.18),uSeed);
+          vec3 vege=mix(vec3(0.09,0.38,0.07),vec3(0.22,0.44,0.10),uSeed);
+          vec3 landC=mix(sand,vege,clamp(detail*(1.2-uSeed*0.9),0.,1.));
+          vec3 col=mix(ocean,landC,smoothstep(-0.06,0.14,land));
+          col=mix(col,uColor*0.4,0.10);
+          gl_FragColor=vec4(col*light,1.0);
+        }`,
+      gas_giant:`
+        ${_NOISE}
+        varying vec3 vW,vN,vL;
+        uniform vec3 uColor,uLight; uniform float uSeed,uTime;
+        void main(){
+          vec3 L=normalize(uLight-vW);
+          float diff=max(0.,dot(vN,L));
+          float light=0.45+0.55*diff;
+          float ang=uTime*0.753+uSeed*6.283;
+          float ca=cos(ang),sa=sin(ang);
+          vec3 sp=vec3(vL.x*ca-vL.z*sa,vL.y,vL.x*sa+vL.z*ca);
+          float bandFreq=18.+uSeed*9.;
+          float warpStr=0.30+uSeed*0.25;
+          float warp=fbm3(sp*4.,4)*warpStr;
+          float band=sin((vL.y+warp)*bandFreq+fbm3(sp*2.,3)*1.5)*0.5+0.5;
+          float detail=fbm3(sp*13.+uSeed,3);
+          vec3 c1=uColor*0.72, c2=uColor*1.22, c3=vec3(0.94,0.90,0.80);
+          vec3 col=mix(c1,c2,smoothstep(0.28,0.72,band));
+          col=mix(col,c3,smoothstep(0.72,1.,band)*(0.4+uSeed*0.3));
+          col*=0.84+0.16*detail;
+          gl_FragColor=vec4(col*light,1.0);
+        }`,
+      ice_giant:`
+        ${_NOISE}
+        varying vec3 vW,vN,vL;
+        uniform vec3 uColor,uLight; uniform float uSeed,uTime;
+        void main(){
+          vec3 L=normalize(uLight-vW);
+          float diff=max(0.,dot(vN,L));
+          float light=0.45+0.55*diff;
+          float ang=uTime*0.628+uSeed*6.283;
+          float ca=cos(ang),sa=sin(ang);
+          vec3 sp=vec3(vL.x*ca-vL.z*sa,vL.y,vL.x*sa+vL.z*ca);
+          float warpStr=0.40+uSeed*0.25;
+          float warp=fbm3(sp*3.,3)*warpStr;
+          float swirl=fbm3(sp*5.5+uSeed,4);
+          float bandFreq=11.+uSeed*5.;
+          float band=sin((vL.y+warp*0.5)*bandFreq)*0.5+0.5;
+          vec3 c3=vec3(0.80+uSeed*0.12,0.89,0.97);
+          vec3 c1=uColor*0.62, c2=uColor*1.28;
+          vec3 col=mix(c1,c2,swirl);
+          col=mix(col,c3,band*0.22);
+          col*=0.87+0.13*fbm3(sp*19.,3);
+          gl_FragColor=vec4(col*light,1.0);
+        }`
+    };
+    return new THREE.ShaderMaterial({
+      uniforms:{uColor:{value:new THREE.Vector3(c.r,c.g,c.b)},
+                uLight:{value:lp.clone()},uSeed:{value:s},uTime:_bodyTime},
+      vertexShader:_VERT,
+      fragmentShader:frag[type]||frag.terrestrial
+    });
+  }
+
+  function moonMat(isIcy,lightPos,seed){
+    const lp=lightPos instanceof THREE.Vector3?lightPos:new THREE.Vector3();
+    const s=(seed%99991)/99991.0;
+    return new THREE.ShaderMaterial({
+      uniforms:{uLight:{value:lp.clone()},uSeed:{value:s},
+                uIcy:{value:isIcy?1.0:0.0},uTime:_bodyTime},
+      vertexShader:_VERT,
+      fragmentShader:`
+        ${_NOISE}
+        varying vec3 vW,vN,vL;
+        uniform vec3 uLight; uniform float uSeed,uIcy,uTime;
+        void main(){
+          vec3 L=normalize(uLight-vW);
+          float diff=max(0.,dot(vN,L));
+          float light=0.40+0.60*diff;
+          float ang=uTime*0.08+uSeed*6.283;
+          float ca=cos(ang),sa=sin(ang);
+          vec3 sp=vec3(vL.x*ca-vL.z*sa,vL.y,vL.x*sa+vL.z*ca)+uSeed*0.17;
+          float surf=fbm3(sp*9.,4);
+          float fine=fbm3(sp*22.+1.3,3);
+          vec3 rocky=vec3(0.30,0.26,0.22)*(0.7+0.3*surf)*(0.88+0.12*fine);
+          vec3 icy=vec3(0.70,0.78,0.88)*(0.8+0.2*surf)*(0.90+0.10*fine);
+          vec3 col=mix(rocky,icy,uIcy);
+          gl_FragColor=vec4(col*light,1.0);
+        }`
+    });
+  }
+
+  function cloudMat(type,lightPos,seed){
+    const lp=lightPos instanceof THREE.Vector3?lightPos:new THREE.Vector3();
+    const s=(seed%99991)/99991.0;
+    // cloud composition per type: water-ice, ammonia-ice, methane-ice
+    const cfg={
+      terrestrial:{col:[0.95,0.96,0.98],thresh:0.57,alpha:0.58},
+      gas_giant:  {col:[0.91,0.88,0.78],thresh:0.54,alpha:0.46},
+      ice_giant:  {col:[0.82,0.88,0.94],thresh:0.64,alpha:0.30},
+    }[type]||{col:[0.95,0.96,0.98],thresh:0.57,alpha:0.58};
+    const [cr,cg,cb]=cfg.col;
+    return new THREE.ShaderMaterial({
+      uniforms:{uLight:{value:lp.clone()},uSeed:{value:s},uTime:_bodyTime,
+                uCol:{value:new THREE.Vector3(cr,cg,cb)},
+                uThresh:{value:cfg.thresh},uMaxAlpha:{value:cfg.alpha}},
+      vertexShader:_VERT,
+      fragmentShader:`
+        ${_NOISE}
+        varying vec3 vW,vN,vL;
+        uniform vec3 uLight,uCol; uniform float uSeed,uTime,uThresh,uMaxAlpha;
+        void main(){
+          vec3 L=normalize(uLight-vW);
+          float diff=max(0.,dot(vN,L));
+          float light=0.50+0.50*diff;
+          float ang=uTime*1.15+uSeed*6.283;
+          float ca=cos(ang),sa=sin(ang);
+          vec3 sp=vec3(vL.x*ca-vL.z*sa,vL.y,vL.x*sa+vL.z*ca)+uSeed*0.23;
+          float c1=fbm3(sp*3.5,4);
+          float c2=fbm3(sp*7.+0.8,3);
+          float alpha=smoothstep(uThresh,uThresh+0.16,c1+c2*0.3)*uMaxAlpha*light;
+          gl_FragColor=vec4(uCol,alpha);
+        }`,
+      transparent:true,
+      depthWrite:false
+    });
   }
 
   function enterSystem(sysId){
@@ -748,14 +896,13 @@ function initViewer(DATA) {
       starPos[st.id]=pos;
       const r=starVR(st.radius); starRadius[st.id]=r;
       const col=SPEC_COL[st.spectral_type]||'#ffffff';
-      const mesh=new THREE.Mesh(new THREE.SphereGeometry(r,20,20),new THREE.MeshBasicMaterial({color:col}));
+      const mesh=new THREE.Mesh(new THREE.SphereGeometry(r,32,32),starMat(col));
       mesh.position.copy(pos); mesh.userData={type:'star',data:st,radius:r,bodyKey:'star-'+st.id};
       bodyMeshMap['star-'+st.id]=mesh;
       detailGroup.add(mesh);
-      const gl=glowSprite(new THREE.Color(col),r*2.5); gl.position.copy(pos); detailGroup.add(gl);
+      const gl=glowSprite(new THREE.Color(col),r*3.8); gl.position.copy(pos); detailGroup.add(gl);
     });
 
-    // non-overlapping orbit layout — visual radii, not physical distances
     const pl=(planetsBySys[sysId]||[]).slice().sort((a,b)=>a.orbital_distance-b.orbital_distance);
     const moonPad={};
     pl.forEach(p=>{
@@ -772,11 +919,9 @@ function initViewer(DATA) {
 
     let maxOrbit=1;
     // fibonacci sphere — cos(phase) evenly spaced, incl stepped by golden angle
-    // gives near-uniform angular coverage for any n without trying to pack a sphere
     const goldenAngle = Math.PI * (3 - Math.sqrt(5));
     const n = pl.length;
 
-    // seed the overlap list with the star spheres so planets won't clip them either
     const placed = stars.map(st => ({pos: starPos[st.id].clone(), r: starRadius[st.id]}));
 
     pl.forEach((p,i)=>{
@@ -785,12 +930,10 @@ function initViewer(DATA) {
       const rand=rngFor((p.id*2654435761)>>>0); // keep for moons
       const r=planetVR(p.radius);
 
-      // fibonacci base position
       const cosPhase = n > 1 ? 1 - 2*(i+0.5)/n : 0;
       const basePhase = Math.acos(Math.max(-1, Math.min(1, cosPhase)));
       let incl = i * goldenAngle;
 
-      // nudge incl by goldenAngle steps until no overlap — usually resolves in 1-2 tries
       const rEff = r + (moonPad[p.id]||0);
       let pos = center.clone().add(orbitPoint(a, basePhase, incl));
       for (let k = 1; k < 32; k++) {
@@ -801,18 +944,21 @@ function initViewer(DATA) {
       placed.push({pos, r: rEff});
 
       maxOrbit=Math.max(maxOrbit,a);
-      const mesh=new THREE.Mesh(new THREE.SphereGeometry(r,16,16),new THREE.MeshBasicMaterial({color:PL_COL[p.planet_type]||0xffffff}));
+      const mesh=new THREE.Mesh(new THREE.SphereGeometry(r,24,24),planetMat(p.planet_type,PL_COL[p.planet_type]||0xffffff,starPos[p.star_id]||center,p.id));
       mesh.position.copy(pos); mesh.userData={type:'planet',data:p,radius:r,bodyKey:'planet-'+p.id};
       bodyMeshMap['planet-'+p.id]=mesh;
       detailGroup.add(mesh);
+      const cm=new THREE.Mesh(new THREE.SphereGeometry(r*1.05,24,24),cloudMat(p.planet_type,starPos[p.star_id]||center,p.id));
+      cm.position.copy(pos); detailGroup.add(cm);
       detailGroup.add(orbitRing(center,a,incl,80));
       detailGroup.add(edge(starC,pos,0x335588));
       (moonsByPlanet[p.id]||[]).forEach(mn=>{
         const mr=Math.max(0.001,mn.orbital_distance)*MOON;
         const ph2=rand()*Math.PI*2, ic2=rand()*Math.PI;
         const mp=pos.clone().add(orbitPoint(mr,ph2,ic2));
-        const mmesh=new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.06,planetVR(mn.radius)*0.6),10,10),new THREE.MeshBasicMaterial({color:0xcccccc}));
-        mmesh.position.copy(mp); mmesh.userData={type:'moon',data:mn,radius:0.1,bodyKey:'moon-'+mn.id};
+        const mr2=Math.max(0.06,planetVR(mn.radius)*0.6);
+        const mmesh=new THREE.Mesh(new THREE.SphereGeometry(mr2,16,16),moonMat(mn.moon_type==='icy',starPos[p.star_id]||center,mn.id));
+        mmesh.position.copy(mp); mmesh.userData={type:'moon',data:mn,radius:mr2,bodyKey:'moon-'+mn.id};
         bodyMeshMap['moon-'+mn.id]=mmesh;
         detailGroup.add(mmesh);
         detailGroup.add(orbitRing(pos,mr,ic2,40));
@@ -824,6 +970,7 @@ function initViewer(DATA) {
     const sysCamPos = center.clone().add(new THREE.Vector3(0,dist*0.3,dist));
     _centerFn = () => startFlight(sysCamPos.clone(), center.clone());
     startFlight(sysCamPos, center);
+    controls.minDistance = maxStarR * 2;
     if(systemPoints){
       const K=120;
       systemPoints.scale.setScalar(K);
@@ -836,6 +983,7 @@ function initViewer(DATA) {
   }
 
   function exitSystem(){
+    controls.minDistance=0.5;
     mode='universe'; currentSys=null; clearDetail();
     if(systemPoints){
       systemPoints.scale.setScalar(1); systemPoints.position.set(0,0,0);
@@ -893,11 +1041,13 @@ function initViewer(DATA) {
 
   function focusBody(o){
     const p=o.position.clone(), r=o.userData.radius||1;
+    const t=o.userData.type;
+    const minMult = t==='star' ? 3.0 : t==='moon' ? 3.5 : 2.5;
+    controls.minDistance=r*minMult;
     const dir=new THREE.Vector3().subVectors(camera.position,p).normalize();
     startFlight(p.clone().add(dir.multiplyScalar(Math.max(8,r*8+6))),p);
   }
 
-  // info panels
   function row(k,v){return'<tr><td class="k">'+k+'</td><td>'+v+'</td></tr>';}
 
   function showSystemInfo(s){
@@ -954,7 +1104,6 @@ function initViewer(DATA) {
     else document.getElementById('info').innerHTML=h;
   }
 
-  // search/filter
   const SPECS=['O','B','A','F','G','K','M'];
   const specBox=document.getElementById('specBoxes');
   specBox.innerHTML='';
@@ -999,11 +1148,12 @@ function initViewer(DATA) {
   function animate(){
     _animId=requestAnimationFrame(animate);
     const dt=Math.min(clock.getDelta(),0.05);
+    _bodyTime.value+=dt*rotSpeed;
     if(flying){
-      controls.target.lerp(desiredTarget,0.1);
-      camera.position.lerp(desiredCam,0.1);
+      controls.target.lerp(desiredTarget,0.18);
+      camera.position.lerp(desiredCam,0.18);
       camera.lookAt(controls.target);
-      if(camera.position.distanceTo(desiredCam)<1.5&&controls.target.distanceTo(desiredTarget)<1.5){
+      if(camera.position.distanceTo(desiredCam)<0.06&&controls.target.distanceTo(desiredTarget)<0.06){
         flying=false;
         controls.target.copy(desiredTarget);
         camera.position.copy(desiredCam);
@@ -1015,12 +1165,9 @@ function initViewer(DATA) {
     renderer.render(scene,camera);
   }
 
-  applyFilter(); // populates system points via buildSystems
+  applyFilter();
   animate();
 }
-
-// global input handlers — registered once, survive viewer re-init
-const _keys={};
 
 (function(){
   function typing(){return document.activeElement&&/INPUT|TEXTAREA/.test(document.activeElement.tagName);}
@@ -1028,9 +1175,7 @@ const _keys={};
     if(typing())return;
     if(e.code==='Space'){ e.preventDefault(); if(_centerFn)_centerFn(); return; }
     if(e.key==='Escape'&&_exitSystemFn){ _exitSystemFn(); return; }
-    _keys[e.code]=true;
   });
-  window.addEventListener('keyup',e=>{_keys[e.code]=false;});
   window.addEventListener('resize',()=>{
     if(_camera&&_renderer){
       _camera.aspect=innerWidth/innerHeight;
@@ -1040,14 +1185,10 @@ const _keys={};
   });
 })();
 
-// =========================
-// config + regenerate
-// =========================
 function readCfg(){
   return {
     seed:               +document.getElementById('cfg-seed').value,
-    universeSize:       +document.getElementById('cfg-universeSize').value,
-    elementNoiseScale:  +document.getElementById('cfg-noiseScale').value,
+    clusterScale:       +document.getElementById('cfg-clusterScale').value,
     elementOctaves:     Math.max(1, +document.getElementById('cfg-octaves').value|0),
     latticeResolution:  Math.max(5, Math.min(80, +document.getElementById('cfg-latticeRes').value|0)),
     densityThreshold:   +document.getElementById('cfg-densityThresh').value,
@@ -1058,6 +1199,10 @@ function readCfg(){
     maxOrbitalDistance: +document.getElementById('cfg-maxOrbit').value,
   };
 }
+
+document.getElementById('cfg-rotSpeed').addEventListener('input',e=>{
+  rotSpeed=parseFloat(e.target.value)||0;
+});
 
 document.getElementById('cfgToggle').addEventListener('click',()=>{
   const body=document.getElementById('cfgBody'), open=body.classList.toggle('open');
@@ -1090,7 +1235,6 @@ function runGeneration(cfg){
   }));
 }
 
-// initial generation
 runGeneration(readCfg());
 </script>
 </body>
