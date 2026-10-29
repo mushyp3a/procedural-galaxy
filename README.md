@@ -1,49 +1,44 @@
-# Procedural Galaxy Generator
+# Procedural Galaxy
 
-A procedural universe generator with an interactive 3D viewer. Two modes:
+A galaxy generator with an interactive 3D viewer. It runs entirely in the browser, so no Python or server setup is needed.
 
-- **`html/index.html`** — fully client-side, runs the entire generation pipeline in
-  JavaScript. No Python or server required. All parameters are editable in the
-  browser and the universe can be regenerated instantly.
-- **Python pipeline** — generates into a SQLite database for offline analysis or
-  to produce the legacy `explore.html`.
+The Generator is hosted here: https://mackenzietrafford.com/procedural-galaxy but you can still run it locally as shown below.
 
-## Deploying to Hugo
+The original Python and SQLite version lives on the `DEPRECATED-python-sqlite-version` branch. It may no longer work.
 
-The web viewer lives in `html/` and needs no build step:
+## Running It
+
+The project is static files, so any simple server will do:
+
+```
+cd html
+python -m http.server 8000
+```
+
+Then open http://localhost:8000.
+
+## Files
 
 ```
 html/
-  index.html
+  index.html      The page and all the panels
+  style.css       Styling, with the colours at the top
+  generator.js    Generates the systems, stars, planets and moons
+  viewer.js       Draws everything with three.js
+  main.js         Config inputs and starting the generation
   viewer/
     three.min.js
     OrbitControls.js
 ```
 
-Serve the contents of `html/` from any static host. In the portfolio site it is
-mounted at `/procedural-galaxy/` (see the portfolio's `hugo.toml`), so
-`index.html` is the explorer page and the universe is generated in-browser on
-first load.
+The scripts load in this order in `index.html`, so `generator.js` must come before `viewer.js`.
 
-## Python pipeline (offline generation)
+## Viewer Features
 
-```bash
-nix develop          # enter dev shell (numpy, noise, plotly)
-python universe.py   # generate universe.db
-python view.py       # write explore.html (legacy viewer, gitignored)
-```
-
-## Interactive viewer features
-
-- **Universe view**: every system is a point in 3D space, coloured by metallicity,
-  over a starfield. Drag to orbit, scroll to zoom, WASD to fly.
-- **Click a system** (or use Search) to fly in. Stars are drawn with glow, planets
-  on orbits with connecting edges.
-- **Click a star or planet** to focus it and show its properties.
-- **Search / Filter**: filter by metallicity range, planet count, spectral type.
-  `Esc` / "Back" returns to the universe view.
-- **Generator Config** (collapsible, in the Search panel): change any generation
-  parameter — seed, universe size, noise scale, lattice resolution, element
-  thresholds, star and orbit limits — then click **Regenerate**.
-
-> Moons are schema-supported but not yet generated.
+- Every system is a point, coloured by metallicity (blue is low, orange is high).
+- Click a system to fly in and see its stars, planets and moons on their orbits.
+- Click a star, planet or moon to see its details.
+- Search by system ID, or filter by metallicity, planet count and spectral type.
+- `Esc` or the Back button returns to the galaxy view.
+- `Space` centres the camera. Left-drag orbits, right-drag pans and the wheel zooms.
+- The Generator Config in the search panel lets you change the seed, size, noise and orbit limits, then click Regenerate.
