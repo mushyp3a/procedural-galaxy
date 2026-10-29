@@ -1,4 +1,4 @@
-![alt text](/images/galaxy.png)
+![alt text](/images/galaxy.png?)
 
 # Procedural Galaxy
 
@@ -47,6 +47,6 @@ The scripts load in this order in `index.html`, so `generator.js` must come befo
 
 ## Images
 
-![Solar System](/images/solar-system.png)
+![Solar System](/images/solar-system.png?)
 
-![Planets](/images/planets.png)
+![Planets](/images/planets.png?)
