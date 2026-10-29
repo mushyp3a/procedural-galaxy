@@ -2,7 +2,7 @@
 
 A galaxy generator with an interactive 3D viewer. It runs entirely in the browser, so no Python or server setup is needed.
 
-The Generator is hosted here: https://mackenzietrafford.com/procedural-galaxy but you can still run it locally as shown below.
+The Generator is hosted here: https://mackenzietrafford.com/projects/galaxy/ but you can still run it locally as shown below.
 
 The original Python and SQLite version lives on the `DEPRECATED-python-sqlite-version` branch. It may no longer work.
 
